@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,6 +72,88 @@ func TestWindowsConfigurationAndLifecycle(t *testing.T) {
 		t.Fatal(status, err)
 	}
 	if err = r.StopTask(task.Ticket); err != nil || !control.stopped {
+		t.Fatal(err)
+	}
+}
+
+func TestWindowsPrepareRequiresReadyWorkerBeforeChangingTask(t *testing.T) {
+	c := windowsConfig()
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{healthErr: errors.New("offline")}
+	r.Local = control
+	r.Config = c
+	task, err := r.Create("REMOTE-HEALTH-GATE", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Prepare(task.Ticket, c.Repo, c.Base); err == nil || !strings.Contains(err.Error(), "readiness preflight") {
+		t.Fatal(err)
+	}
+	stored, err := r.State.Task(task.Ticket)
+	if err != nil || stored.Phase != "created" || stored.Repo != "" || control.prepared || control.healthCalls != 1 {
+		t.Fatal(stored, control.prepared, control.healthCalls, err)
+	}
+}
+
+func TestWindowsRecoverPrepareRequiresReadyWorkerBeforeMutation(t *testing.T) {
+	c := windowsConfig()
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{healthStatus: "starting"}
+	r.Local = control
+	r.Config = c
+	task, err := r.Create("REMOTE-RECOVER-HEALTH-GATE", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Repo = c.Repo
+	task.Base = c.Base
+	task.Branch = "remote-recover-health-gate-agent"
+	task.Phase = "preparing"
+	if err = r.State.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.RecoverPrepare(task.Ticket); err == nil || !strings.Contains(err.Error(), "readiness preflight") {
+		t.Fatal(err)
+	}
+	stored, err := r.State.Task(task.Ticket)
+	if err != nil || stored.Phase != "preparing" || control.prepared || control.healthCalls != 1 {
+		t.Fatal(stored, control.prepared, control.healthCalls, err)
+	}
+}
+
+func TestWindowsTasksShareCodexProfileWithoutGlobalLease(t *testing.T) {
+	c := windowsConfig()
+	c.WindowsT3PortStart = 3784
+	c.WindowsT3PortEnd = 3786
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{online: true, result: StartResult{ID: "thread", Job: "run"}}
+	r.Local = control
+	r.Config = c
+	first, err := r.Create("REMOTE-PROFILE-A", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := r.Create("REMOTE-PROFILE-B", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first, err = r.Prepare(first.Ticket, c.Repo, c.Base); err != nil {
+		t.Fatal(err)
+	}
+	if second, err = r.Prepare(second.Ticket, c.Repo, c.Base); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.State.Acquire(c.User, first.Ticket); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Run(second.Ticket, "inspect", "", "gpt-test"); err != nil {
+		t.Fatal(err)
+	}
+	var leases int
+	if err = r.State.DB.QueryRow("SELECT count(*) FROM leases WHERE user=?", c.User).Scan(&leases); err != nil || leases != 0 {
+		t.Fatal(leases, err)
+	}
+	if _, err = r.Run(first.Ticket, "inspect", "", "gpt-test"); err != nil {
 		t.Fatal(err)
 	}
 }

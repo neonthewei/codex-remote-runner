@@ -10,6 +10,9 @@ import (
 )
 
 type fakeLocalControl struct {
+	healthStatus  string
+	healthErr     error
+	healthCalls   int
 	online        bool
 	prepared      bool
 	served        bool
@@ -20,6 +23,18 @@ type fakeLocalControl struct {
 	result        StartResult
 	thread        map[string]any
 	pairing       string
+}
+
+func (f *fakeLocalControl) Health() (map[string]string, error) {
+	f.healthCalls++
+	if f.healthErr != nil {
+		return nil, f.healthErr
+	}
+	status := f.healthStatus
+	if status == "" {
+		status = "ready"
+	}
+	return map[string]string{"status": status}, nil
 }
 
 func (f *fakeLocalControl) Prepare(Task, string, string) error {

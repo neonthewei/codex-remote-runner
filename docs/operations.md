@@ -395,12 +395,15 @@ foreground without holding the controller database lock. Run it under a trusted
 service manager. `run` and `status` use the recorded T3 data directory and port.
 The former `serve-local` spelling remains a compatibility alias.
 
-The local Codex profile remains leased to the task across app handoffs. Stop the
+Worktree tasks may share the host's Codex login and do not acquire the VM
+credential lease. Each task still has one conversation writer. Stop that task's
 T3 server before `handoff TASK --to app`; start it before `handoff TASK --to t3`.
-Codex itself enforces a single active writer, so close or release the conversation
-in the previous client before the next client sends work. A failed start remains
-uncertain. Inspect T3 and use `recover-turn TASK --conversation T3_THREAD_ID`
-instead of sending the prompt again.
+Close or release the same conversation in the previous client before the next
+client writes to it. Other worktree tasks and conversations may remain active.
+A failed start remains uncertain. Inspect T3 and use
+`recover-turn TASK --conversation T3_THREAD_ID` instead of sending the prompt
+again. Controllers automatically remove legacy worktree leases left by older
+versions before starting a new worktree turn.
 
 Windows does not currently report T3's built-in service manager as supported.
 `deploy/install-local-task.ps1` therefore registers a per-user Task Scheduler

@@ -15,6 +15,7 @@ import (
 )
 
 type LocalControl interface {
+	Health() (map[string]string, error)
 	Prepare(Task, string, string) error
 	Run(Task, string, string) (StartResult, error)
 	Thread(Task) (map[string]any, error)
@@ -30,6 +31,10 @@ type localHost struct {
 	setupBin   string
 	setupArgs  []string
 	setupPaths []string
+}
+
+func (l *localHost) Health() (map[string]string, error) {
+	return map[string]string{"status": "ready"}, nil
 }
 
 const localGitCommandTimeout = 2 * time.Minute
@@ -181,10 +186,6 @@ func within(root, target string) bool {
 }
 
 func (r *Runner) prepareLocal(t Task, repo, base string) (Task, error) {
-	var err error
-	if t, err = r.ensureWindowsTaskPort(t); err != nil {
-		return t, err
-	}
 	if t.Repo != "" {
 		if t.Repo != repo || t.Base != base {
 			return t, errors.New("task already owns another repo or base")
@@ -193,6 +194,13 @@ func (r *Runner) prepareLocal(t Task, repo, base string) (Task, error) {
 			return t, nil
 		}
 		return t, errors.New("local preparation is uncertain; run recover-prepare")
+	}
+	if err := r.requireWindowsWorkerReady(t); err != nil {
+		return t, err
+	}
+	var err error
+	if t, err = r.ensureWindowsTaskPort(t); err != nil {
+		return t, err
 	}
 	t.Repo = repo
 	t.Base = base
@@ -209,12 +217,15 @@ func (r *Runner) prepareLocal(t Task, repo, base string) (Task, error) {
 }
 
 func (r *Runner) recoverPrepareLocal(t Task) (Task, error) {
+	if t.Phase != "preparing" || t.Repo == "" || t.Branch == "" {
+		return t, errors.New("task is not awaiting local preparation recovery")
+	}
+	if err := r.requireWindowsWorkerReady(t); err != nil {
+		return t, err
+	}
 	var portErr error
 	if t, portErr = r.ensureWindowsTaskPort(t); portErr != nil {
 		return t, portErr
-	}
-	if t.Phase != "preparing" || t.Repo == "" || t.Branch == "" {
-		return t, errors.New("task is not awaiting local preparation recovery")
 	}
 	branch, err := r.localControl().Branch(t)
 	if err == nil && branch != t.Branch {
@@ -231,6 +242,17 @@ func (r *Runner) recoverPrepareLocal(t Task) (Task, error) {
 	return t, r.State.Save(t)
 }
 
+func (r *Runner) requireWindowsWorkerReady(t Task) error {
+	if t.Host != "windows" {
+		return nil
+	}
+	result, err := r.localControl().Health()
+	if err != nil || result["status"] != "ready" {
+		return errors.New("Windows worker readiness preflight failed; wait for check-host to report ready before retrying")
+	}
+	return nil
+}
+
 func (r *Runner) runLocal(t Task, prompt, model string) (StartResult, error) {
 	var result StartResult
 	if t.Phase != "active" {
@@ -242,7 +264,7 @@ func (r *Runner) runLocal(t Task, prompt, model string) (StartResult, error) {
 	if !r.localControl().Online(t) {
 		return result, errors.New("local T3 server is offline; run serve-task for this task")
 	}
-	if err := r.State.Acquire(t.User, t.Ticket); err != nil {
+	if err := r.State.ClearWorktreeLeases(t.User); err != nil {
 		return result, err
 	}
 	t.Phase = "starting-turn"

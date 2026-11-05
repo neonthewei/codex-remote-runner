@@ -166,10 +166,13 @@ control, release the conversation in Codex App, start `serve-task`, then run
 the recorded owner is the app. App-created turns are not imported into T3's own
 message database, so inspect both histories after a handoff.
 
-Local mode is currently one serialized Codex profile and one T3 listener per
-task, run either in the foreground or as the Windows scheduled service below. It does not copy credentials,
-checkpoint a VM, or require Instabox. The controller fetches the configured base
-from `origin` and creates a new task branch beneath `local_worktree_root`.
+Local and remote-Windows worktree tasks may share the signed-in Codex profile.
+Each task has its own worktree, T3 data directory, listener, conversation owner
+and port; the VM credential lease does not serialize unrelated worktree tasks.
+Local mode runs either in the foreground or as the Windows scheduled service
+below. It does not copy credentials, checkpoint a VM, or require Instabox. The
+controller fetches the configured base from `origin` and creates a new task
+branch beneath `local_worktree_root`.
 
 On Windows, install the prepared task as a restartable per-user scheduled service
 and expose only that listener to the private tailnet:

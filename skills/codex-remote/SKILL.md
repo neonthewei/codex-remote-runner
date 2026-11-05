@@ -26,10 +26,15 @@ run arbitrary commands such as `hostname`.
 
 Run `create`, `prepare`, `run`, `status` and recovery commands locally through
 this skill wrapper. Keep `serve-task TASK` under this computer's persistent
-service manager. Each task receives a distinct port from the Windows worker's
-bounded range. Stop it with `stop-task TASK`; never kill a PID that was not
-verified through the worker. If a request or SSH connection ends ambiguously,
-inspect state and use the documented recovery path; never replay the prompt.
+service manager and keep the controller computer awake while it owns work. Each
+task receives a distinct port from the Windows worker's bounded range. Worktree
+tasks may share the host Codex login; the single-writer boundary is each task's
+conversation, not the whole profile. Do not use VM `checkpoint` for a worktree
+task. `prepare` and `recover-prepare` perform their own worker readiness preflight
+and must fail without changing task state when it is unavailable. Stop a task
+with `stop-task TASK`; never kill a PID that was not verified through the worker.
+If a request or SSH connection ends ambiguously, inspect state and use the
+documented recovery path; never replay the prompt.
 
 For `host: local` on Windows, use the Windows local bot self-install procedure.
 Inspect existing paths, tasks and Tailscale mappings before running

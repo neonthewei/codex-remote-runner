@@ -180,6 +180,15 @@ func (s *State) Acquire(user, ticket string) error {
 	_, e = s.DB.Exec("INSERT OR IGNORE INTO leases VALUES(?,?)", user, ticket)
 	return e
 }
+
+func (s *State) ClearWorktreeLeases(user string) error {
+	_, err := s.DB.Exec(`DELETE FROM leases WHERE user=? AND ticket IN (
+		SELECT ticket FROM local_tasks
+		UNION
+		SELECT ticket FROM windows_tasks
+	)`, user)
+	return err
+}
 func (s *State) CheckpointVersion(t *Task, version string) error {
 	tx, e := s.DB.Begin()
 	if e != nil {
