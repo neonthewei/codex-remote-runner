@@ -11,6 +11,9 @@ param(
     [string]$PolicyPath = "$HOME\.codex\state\codex-remote-runner\windows-worker.json",
     [string]$GoPath,
     [string]$GitPath,
+    [string]$SetupExecutablePath,
+    [string[]]$SetupArguments = @(),
+    [string[]]$SetupPathEntries = @(),
     [string]$OpenSSHMSIPath,
     [string]$TailscaleIPv4Range = '100.64.0.0/10'
 )
@@ -45,6 +48,19 @@ if ($GitPath) {
     $git = Get-Command git.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     if (!$git) { throw 'Git for Windows is required by the worker.' }
     $GitPath = $git.Source
+}
+
+if (!$SetupExecutablePath -and ($SetupArguments.Count -gt 0 -or $SetupPathEntries.Count -gt 0)) {
+    throw 'Setup arguments and PATH entries require SetupExecutablePath.'
+}
+$resolvedSetupPaths = @()
+if ($SetupExecutablePath) {
+    if (!(Test-Path -LiteralPath $SetupExecutablePath -PathType Leaf)) { throw "Setup executable is missing: $SetupExecutablePath" }
+    $SetupExecutablePath = (Resolve-Path -LiteralPath $SetupExecutablePath).Path
+    foreach ($pathEntry in $SetupPathEntries) {
+        if (!(Test-Path -LiteralPath $pathEntry -PathType Container)) { throw "Setup PATH entry is missing: $pathEntry" }
+        $resolvedSetupPaths += (Resolve-Path -LiteralPath $pathEntry).Path.Replace('\', '/')
+    }
 }
 
 $capability = Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0'
@@ -89,12 +105,16 @@ try {
     Pop-Location
 }
 
+$setupExecutablePolicyPath = if ($SetupExecutablePath) { $SetupExecutablePath.Replace('\', '/') } else { '' }
 $policy = [ordered]@{
     repo_root = $RepoRoot.Replace('\', '/')
     worktree_root = $WorktreeRoot.Replace('\', '/')
     state_root = $StateRoot.Replace('\', '/')
     t3_bin = $T3Path.Replace('\', '/')
     codex_bin = $CodexPath.Replace('\', '/')
+    setup_bin = $setupExecutablePolicyPath
+    setup_args = @($SetupArguments)
+    setup_paths = @($resolvedSetupPaths)
     t3_port = $T3Port
 } | ConvertTo-Json
 [System.IO.File]::WriteAllText($PolicyPath, $policy + [Environment]::NewLine)

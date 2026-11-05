@@ -79,6 +79,13 @@ pwsh -File deploy/install-windows-worker.ps1 `
   -T3Port 3784
 ```
 
+An optional repository bootstrap is pinned on the Windows host with
+`-SetupExecutablePath`, `-SetupArguments` and `-SetupPathEntries`. It runs from
+the new task worktree before `prepare` records success. These values live in the
+private worker policy and are never accepted from the controller request. A
+failed or interrupted bootstrap leaves the task in `preparing`; after inspecting
+the host, `recover-prepare` reruns the same pinned command and verifies the branch.
+
 If the in-box OpenSSH service fails with error 1067, use
 [Microsoft's documented upgrade path](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release):
 obtain the latest Win64 MSI from the official PowerShell/Win32-OpenSSH release,

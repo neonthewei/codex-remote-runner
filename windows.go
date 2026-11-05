@@ -25,12 +25,15 @@ type windowsWorkerRequest struct {
 }
 
 type windowsWorkerPolicy struct {
-	RepoRoot     string `json:"repo_root"`
-	WorktreeRoot string `json:"worktree_root"`
-	StateRoot    string `json:"state_root"`
-	T3Bin        string `json:"t3_bin"`
-	CodexBin     string `json:"codex_bin"`
-	T3Port       int    `json:"t3_port"`
+	RepoRoot     string   `json:"repo_root"`
+	WorktreeRoot string   `json:"worktree_root"`
+	StateRoot    string   `json:"state_root"`
+	T3Bin        string   `json:"t3_bin"`
+	CodexBin     string   `json:"codex_bin"`
+	SetupBin     string   `json:"setup_bin,omitempty"`
+	SetupArgs    []string `json:"setup_args,omitempty"`
+	SetupPaths   []string `json:"setup_paths,omitempty"`
+	T3Port       int      `json:"t3_port"`
 }
 
 type windowsHost struct {
@@ -115,7 +118,7 @@ func decodeWindowsWorkerError(raw []byte) error {
 }
 
 func (w *windowsHost) Prepare(t Task, base, branch string) error {
-	return w.call(nil, windowsWorkerRequest{Operation: "prepare", Task: t, Base: base, Branch: branch}, 3*time.Minute)
+	return w.call(nil, windowsWorkerRequest{Operation: "prepare", Task: t, Base: base, Branch: branch}, 15*time.Minute)
 }
 
 func (w *windowsHost) Health() (map[string]string, error) {
@@ -202,6 +205,20 @@ func (p windowsWorkerPolicy) Validate() error {
 	if p.T3Port < 1024 || p.T3Port > 65535 {
 		return errors.New("Windows worker t3_port must be between 1024 and 65535")
 	}
+	if p.SetupBin != "" && !windowsAbsolutePath(p.SetupBin) {
+		return errors.New("Windows worker setup_bin must be an absolute Windows path")
+	}
+	if p.SetupBin == "" && (len(p.SetupArgs) != 0 || len(p.SetupPaths) != 0) {
+		return errors.New("Windows worker setup arguments require setup_bin")
+	}
+	if len(p.SetupArgs) > 32 || len(p.SetupPaths) > 32 {
+		return errors.New("Windows worker setup policy is too large")
+	}
+	for _, value := range p.SetupPaths {
+		if !windowsAbsolutePath(value) {
+			return errors.New("Windows worker setup_paths must be absolute Windows paths")
+		}
+	}
 	return nil
 }
 
@@ -225,10 +242,14 @@ func dispatchWindowsWorker(input io.Reader, policy windowsWorkerPolicy) (any, er
 		}
 	}
 	workerConfig := policy.localConfig()
-	local := &localHost{config: workerConfig}
+	local := &localHost{config: workerConfig, setupBin: policy.SetupBin, setupArgs: policy.SetupArgs, setupPaths: policy.SetupPaths}
 	switch request.Operation {
 	case "health":
-		return map[string]string{"status": "ready", "version": Version, "protocol": windowsWorkerProtocol, "repo_root": normalizeWindowsPath(policy.RepoRoot), "worktree_root": normalizeWindowsPath(policy.WorktreeRoot), "state_root": normalizeWindowsPath(policy.StateRoot), "t3_port": fmt.Sprint(policy.T3Port)}, nil
+		setup := "none"
+		if policy.SetupBin != "" {
+			setup = "configured"
+		}
+		return map[string]string{"status": "ready", "version": Version, "protocol": windowsWorkerProtocol, "repo_root": normalizeWindowsPath(policy.RepoRoot), "worktree_root": normalizeWindowsPath(policy.WorktreeRoot), "state_root": normalizeWindowsPath(policy.StateRoot), "t3_port": fmt.Sprint(policy.T3Port), "worktree_setup": setup}, nil
 	case "prepare":
 		return nil, local.Prepare(request.Task, request.Base, request.Branch)
 	case "run":
