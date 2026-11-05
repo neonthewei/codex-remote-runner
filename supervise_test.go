@@ -118,6 +118,9 @@ func TestCLIRunRefusesWithoutSupervisorBeforeStartingVM(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	if e = state.Save(Task{Ticket: "TASK-1", User: "owner", Provider: "codex", Org: "org-test", Name: "task-one", Box: "box-one", Phase: "active", Host: "instabox"}); e != nil {
+		t.Fatal(e)
+	}
 	state.Close()
 	_, e = execute([]string{"--state", root, "run", "TASK-1", "--prompt-file", "/nonexistent/task"})
 	if e == nil || !strings.Contains(e.Error(), "persistent host service") {
