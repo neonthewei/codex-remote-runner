@@ -140,6 +140,12 @@ func (r *Runner) recoverPrepareLocal(t Task) (Task, error) {
 		return t, errors.New("task is not awaiting local preparation recovery")
 	}
 	branch, err := r.localControl().Branch(t)
+	if err != nil {
+		if prepareErr := r.localControl().Prepare(t, t.Base, t.Branch); prepareErr != nil {
+			return t, errors.New("local worktree does not match recorded task branch")
+		}
+		branch, err = r.localControl().Branch(t)
+	}
 	if err != nil || branch != t.Branch {
 		return t, errors.New("local worktree does not match recorded task branch")
 	}
