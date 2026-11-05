@@ -21,6 +21,7 @@ type LocalControl interface {
 	Pair(Task, string) (string, error)
 	Online(Task) bool
 	Serve(Task) error
+	Branch(Task) (string, error)
 }
 
 type localHost struct {
@@ -30,6 +31,9 @@ type localHost struct {
 func (r *Runner) localControl() LocalControl {
 	if r.Local != nil {
 		return r.Local
+	}
+	if r.Config.Host == "windows" {
+		return &windowsHost{config: r.Config}
 	}
 	return &localHost{config: r.Config}
 }
@@ -47,29 +51,59 @@ func (r *Runner) createLocal(ticket string, c Config) (Task, error) {
 		if err != nil {
 			return t, err
 		}
-		if t.Host != "local" || t.User != c.User {
+		if t.Host != c.Host || t.User != c.User {
 			return t, errors.New("task already belongs to another host or profile")
 		}
 		return t, nil
 	}
-	root, err := filepath.Abs(expandHome(c.LocalWorktreeRoot))
-	if err != nil {
-		return Task{}, errors.New("cannot resolve local worktree root")
-	}
-	source, err := filepath.Abs(expandHome(c.LocalRepoRoot))
-	if err != nil {
-		return Task{}, errors.New("cannot resolve local repository root")
+	root := ""
+	source := ""
+	t3Root := ""
+	port := 0
+	var err error
+	if c.Host == "windows" {
+		root = normalizeWindowsPath(c.WindowsWorktreeRoot)
+		source = normalizeWindowsPath(c.WindowsRepoRoot)
+		t3Root = normalizeWindowsPath(c.WindowsStateRoot)
+		port = c.WindowsT3Port
+	} else {
+		root, err = filepath.Abs(expandHome(c.LocalWorktreeRoot))
+		if err != nil {
+			return Task{}, errors.New("cannot resolve local worktree root")
+		}
+		source, err = filepath.Abs(expandHome(c.LocalRepoRoot))
+		if err != nil {
+			return Task{}, errors.New("cannot resolve local repository root")
+		}
+		t3Root = filepath.Join(r.State.Root, "local-t3")
+		port = c.LocalT3Port
 	}
 	name := strings.ToLower(ticket) + "-" + r.State.Namespace[:8]
 	worktree := filepath.Join(root, name)
-	if !within(root, worktree) {
-		return Task{}, errors.New("local worktree escaped configured root")
+	t3Home := filepath.Join(t3Root, ticket)
+	if c.Host == "windows" {
+		worktree = windowsJoin(root, name)
+		t3Home = windowsJoin(t3Root, ticket)
+	} else if !within(root, worktree) {
+		return Task{}, errors.New("worktree escaped configured root")
 	}
-	t := Task{Host: "local", Backend: "t3", Ticket: ticket, User: c.User, Provider: "codex", Org: "local", Name: name, Phase: "created", SourceRoot: source, Worktree: worktree, T3Home: filepath.Join(r.State.Root, "local-t3", ticket), T3Port: c.LocalT3Port, Owner: "t3"}
+	t := Task{Host: c.Host, Backend: "t3", Ticket: ticket, User: c.User, Provider: "codex", Org: c.Host, Name: name, Phase: "created", SourceRoot: source, Worktree: worktree, T3Home: t3Home, T3Port: port, Owner: "t3"}
 	if err = r.State.Save(t); err != nil {
 		return t, err
 	}
 	return t, nil
+}
+
+func isWorktreeHost(host string) bool {
+	return host == "local" || host == "windows"
+}
+
+func normalizeWindowsPath(value string) string {
+	return strings.ReplaceAll(value, "\\", "/")
+}
+
+func windowsJoin(root string, name string) string {
+	return strings.TrimRight(normalizeWindowsPath(root), "/") + "/" + strings.Trim(name, "/")
 }
 
 func within(root, target string) bool {
@@ -105,8 +139,8 @@ func (r *Runner) recoverPrepareLocal(t Task) (Task, error) {
 	if t.Phase != "preparing" || t.Repo == "" || t.Branch == "" {
 		return t, errors.New("task is not awaiting local preparation recovery")
 	}
-	out, err := exec.Command("git", "-C", t.Worktree, "branch", "--show-current").Output()
-	if err != nil || strings.TrimSpace(string(out)) != t.Branch {
+	branch, err := r.localControl().Branch(t)
+	if err != nil || branch != t.Branch {
 		return t, errors.New("local worktree does not match recorded task branch")
 	}
 	t.Phase = "active"
@@ -122,7 +156,7 @@ func (r *Runner) runLocal(t Task, prompt, model string) (StartResult, error) {
 		return result, errors.New("local task is owned by the Codex app; hand it back to t3 before running")
 	}
 	if !r.localControl().Online(t) {
-		return result, errors.New("local T3 server is offline; run serve-local for this task")
+		return result, errors.New("local T3 server is offline; run serve-task for this task")
 	}
 	if err := r.State.Acquire(t.User, t.Ticket); err != nil {
 		return result, err
@@ -194,13 +228,13 @@ func (r *Runner) statusLocal(t Task) (map[string]any, error) {
 	return result, nil
 }
 
-func (r *Runner) ServeLocal(ticket string) error {
+func (r *Runner) ServeTask(ticket string) error {
 	t, err := r.State.Task(ticket)
 	if err != nil {
 		return err
 	}
-	if t.Host != "local" {
-		return errors.New("serve-local requires a local task")
+	if !isWorktreeHost(t.Host) {
+		return errors.New("serve-task requires a worktree task")
 	}
 	return r.localControl().Serve(t)
 }
@@ -210,18 +244,18 @@ func (r *Runner) HandoffLocal(ticket, owner string) (Task, error) {
 	if err != nil {
 		return t, err
 	}
-	if t.Host != "local" {
-		return t, errors.New("handoff requires a local task")
+	if !isWorktreeHost(t.Host) {
+		return t, errors.New("handoff requires a worktree task")
 	}
 	if owner != "app" && owner != "t3" {
 		return t, errors.New("handoff target must be app or t3")
 	}
 	online := r.localControl().Online(t)
 	if owner == "app" && online {
-		return t, errors.New("stop serve-local before handing the single writer to the Codex app")
+		return t, errors.New("stop serve-task before handing the single writer to the Codex app")
 	}
 	if owner == "t3" && !online {
-		return t, errors.New("start serve-local before handing the single writer to T3")
+		return t, errors.New("start serve-task before handing the single writer to T3")
 	}
 	t.Owner = owner
 	return t, r.State.Save(t)
@@ -321,6 +355,14 @@ func (l *localHost) Serve(t Task) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return runManagedProcess(cmd)
+}
+
+func (l *localHost) Branch(t Task) (string, error) {
+	out, err := exec.Command("git", "-C", t.Worktree, "branch", "--show-current").Output()
+	if err != nil {
+		return "", errors.New("cannot inspect worktree branch")
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func (l *localHost) ensureProject(t Task) error {

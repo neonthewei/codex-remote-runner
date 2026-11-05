@@ -42,7 +42,7 @@ func (r *Runner) Create(ticket string, c Config, bootstrap bool) (Task, error) {
 	if e := c.Validate(); e != nil {
 		return Task{}, e
 	}
-	if c.Host == "local" {
+	if isWorktreeHost(c.Host) {
 		return r.createLocal(ticket, c)
 	}
 	if c.User == "" || c.Org == "" {
@@ -160,8 +160,8 @@ func (r *Runner) Reconcile(ticket string) (Task, error) {
 	return t, r.State.Save(t)
 }
 func (r *Runner) Bootstrap(c Config) (Task, error) {
-	if c.Host == "local" {
-		return Task{}, errors.New("local host uses the existing Codex login; bootstrap is not required")
+	if isWorktreeHost(c.Host) {
+		return Task{}, errors.New("worktree hosts use the existing Codex login; bootstrap is not required")
 	}
 	if e := c.Validate(); e != nil {
 		return Task{}, e
@@ -287,7 +287,7 @@ func (r *Runner) Run(ticket, prompt, cwd, model string) (StartResult, error) {
 		return result, errors.New("task text must contain 1 to 262144 bytes")
 	}
 	if t, err := r.State.Task(ticket); err == nil {
-		if t.Host == "local" {
+		if isWorktreeHost(t.Host) {
 			return r.runLocal(t, prompt, model)
 		}
 		if t.Backend == "t3" {
@@ -363,7 +363,7 @@ func (r *Runner) RecoverTurn(ticket, conv string) (Task, error) {
 	if e != nil {
 		return t, e
 	}
-	if t.Host == "local" {
+	if isWorktreeHost(t.Host) {
 		return r.recoverTurnLocal(t, conv)
 	}
 	if _, e = r.owned(t); e != nil {
@@ -399,7 +399,7 @@ func (r *Runner) RecoverTurn(ticket, conv string) (Task, error) {
 	return t, errors.New("select a verified existing conversation")
 }
 func (r *Runner) Prepare(ticket, repo, base string) (Task, error) {
-	if t, err := r.State.Task(ticket); err == nil && t.Host == "local" {
+	if t, err := r.State.Task(ticket); err == nil && isWorktreeHost(t.Host) {
 		return r.prepareLocal(t, repo, base)
 	}
 	c := Config{Repo: repo, Base: base, Provider: "codex", VCPUs: 2, Memory: 4096}
@@ -438,7 +438,7 @@ func (r *Runner) RecoverPrepare(ticket string) (Task, error) {
 	if e != nil {
 		return t, e
 	}
-	if t.Host == "local" {
+	if isWorktreeHost(t.Host) {
 		return r.recoverPrepareLocal(t)
 	}
 	if _, e = r.owned(t); e != nil {
@@ -466,8 +466,8 @@ func (r *Runner) Checkpoint(ticket string) (Task, error) {
 	if e != nil {
 		return t, e
 	}
-	if t.Host == "local" {
-		return t, errors.New("local tasks use handoff instead of credential checkpoint")
+	if isWorktreeHost(t.Host) {
+		return t, errors.New("worktree tasks use handoff instead of credential checkpoint")
 	}
 	if t.Backend == "t3" {
 		gate := flock.New(filepath.Join(r.State.Root, "t3-"+t.Ticket+".lock"))
@@ -612,7 +612,7 @@ func (r *Runner) Status(ticket string) (map[string]any, error) {
 	if e != nil {
 		return nil, e
 	}
-	if t.Host == "local" {
+	if isWorktreeHost(t.Host) {
 		return r.statusLocal(t)
 	}
 	b, e := r.owned(t)

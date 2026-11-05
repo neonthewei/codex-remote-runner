@@ -370,7 +370,7 @@ func t3Pair(r *Runner, ticket, path string) (any, error) {
 	}
 	defer f.Close()
 	var raw string
-	if t.Host == "local" {
+	if isWorktreeHost(t.Host) {
 		if !r.localControl().Online(t) {
 			os.Remove(f.Name())
 			return nil, errors.New("local T3 server is offline; start its service before pairing")

@@ -48,6 +48,78 @@ VM, branch and conversation continue. The operator then verifies the HTTPS task
 view from a real phone with their laptop offline. Report these results separately
 from build/service startup. Create a PR only when authorized by that task.
 
+## Remote Windows host
+
+This mode mirrors the original controller-to-VM design: the bot's own computer
+runs the controller, owns SQLite state and decides when an operation is safe to
+retry. Windows is an SSH execution host for Git worktrees, T3 and its existing
+Codex login. Grokbot is never installed on Windows, and browser automation is not
+part of the agent control path.
+
+The Windows worker is the same reviewed `codex-remote` binary. Its hidden
+`worker` entrypoint accepts one bounded JSON request on standard input and only
+implements health, prepare, run, thread status, pairing, online, branch and T3
+service operations. The Windows installer binds the dedicated public key to an
+encoded PowerShell forced command and disables forwarding and PTY allocation.
+The controller opens SSH without a remote shell command and writes the request to
+standard input. Prompt text is never placed in the process list.
+
+Provision a dedicated Ed25519 key on the bot computer. Move only its `.pub` file
+to Windows through an operator-controlled channel. From an elevated PowerShell
+in this checkout run:
+
+```powershell
+pwsh -File deploy/install-windows-worker.ps1 `
+  -PublicKeyPath C:\private\codex-remote-windows.pub `
+  -RepoRoot C:\Users\you\Documents\Project `
+  -WorktreeRoot C:\Users\you\.codex\worktrees\remote-project `
+  -StateRoot C:\Users\you\.codex\state\codex-remote-runner `
+  -T3Path C:\Users\you\.t3\runtime\versions\VERSION\t3.exe `
+  -CodexPath C:\path\to\codex.exe `
+  -T3Port 3784
+```
+
+The installer builds the worker, provisions OpenSSH Server if absent, disables
+password authentication, applies the required authorized-keys ACL and restricts
+the inbound SSH firewall rule to `100.64.0.0/10`. It keeps one backup of the
+original `sshd_config`. Review existing SSH users before running it because
+disabling password authentication is host-wide.
+
+On Windows, record the output of
+`ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub`. On the bot computer, scan the
+Tailscale DNS name over IPv4 with `ssh-keyscan -4 -t ed25519`, calculate that file's fingerprint
+with `ssh-keygen -lf`, compare it out of band, and only then add the key to
+`known_hosts`. Configure an SSH alias with the DNS name, Windows user, dedicated
+identity file, `IdentitiesOnly yes` and `AddressFamily inet`. Do not automate
+`StrictHostKeyChecking=no` or accept a changed host key. `windows_ssh_target`
+names this alias; credentials do not belong in YAML. Run `codex-remote check-host`
+to verify the forced worker protocol.
+
+Copy `config.windows.example.yaml` outside the checkout, fill every absolute
+Windows path and keep it private. `create` records the remote host and bounded
+paths in the controller's local state. `prepare`, `run`, `status`, `pair`,
+`recover-prepare` and `recover-turn` then use the SSH worker. Keep
+`serve-task TASK` running under the bot computer's service manager; that
+persistent SSH process owns the remote T3 process. A dropped SSH session stops
+the process tree and the service manager restarts the same task state.
+
+The private T3 HTTPS origin remains optional for human review. The bot does not
+need a paired browser. Tailscale Serve on Windows may continue to proxy the T3
+loopback port, but SSH is the command path. Funnel is not used.
+
+Acceptance requires:
+
+- `codex-remote check-host` reports the expected worker version after explicit
+  host-key verification;
+- the bot-side `codex-remote create`, `prepare` and `status` commands operate on
+  the expected Windows path and branch;
+- `serve-task` survives under the bot-side service manager and stops the remote
+  T3 process when deliberately stopped;
+- one harmless `run` executes through the structured worker and returns the
+  original T3 thread/run identifiers;
+- an interrupted start is recovered with `recover-turn` and never replayed; and
+- Windows has no Grokbot installation and no SSH password authentication.
+
 ## Windows local bot self-install
 
 Use this path when the coding environment is an existing trusted Windows desktop
@@ -256,7 +328,7 @@ rejects unknown YAML fields and multiple documents. It does not load `.env` file
 
 | YAML field | Environment variable | Purpose |
 | --- | --- | --- |
-| `host` | `CODEX_REMOTE_HOST` | `instabox` or the experimental `local` host |
+| `host` | `CODEX_REMOTE_HOST` | `windows`, same-computer `local`, or `instabox` |
 | `user` | `CODEX_REMOTE_USER` | Your credential profile name |
 | `org` | `CODEX_REMOTE_ORG` | Instabox workspace ID |
 | `provider` | `CODEX_REMOTE_PROVIDER` | `codex` or `claude` |
@@ -273,12 +345,21 @@ rejects unknown YAML fields and multiple documents. It does not load `.env` file
 | `local_t3_bin` | `CODEX_REMOTE_LOCAL_T3_BIN` | T3 executable or Windows command path |
 | `local_codex_bin` | `CODEX_REMOTE_LOCAL_CODEX_BIN` | Codex executable used by the T3 server |
 | `local_t3_port` | `CODEX_REMOTE_LOCAL_T3_PORT` | Loopback T3 port for this local task |
+| `windows_ssh_target` | `CODEX_REMOTE_WINDOWS_SSH_TARGET` | Verified SSH config alias for the Windows worker |
+| `windows_ssh_bin` | `CODEX_REMOTE_WINDOWS_SSH_BIN` | SSH client on the controller computer |
+| `windows_repo_root` | `CODEX_REMOTE_WINDOWS_REPO_ROOT` | Existing source checkout on Windows |
+| `windows_worktree_root` | `CODEX_REMOTE_WINDOWS_WORKTREE_ROOT` | Parent directory for Windows task worktrees |
+| `windows_state_root` | `CODEX_REMOTE_WINDOWS_STATE_ROOT` | Private Windows directory for T3 task data |
+| `windows_t3_bin` | `CODEX_REMOTE_WINDOWS_T3_BIN` | Versioned T3 executable on Windows |
+| `windows_codex_bin` | `CODEX_REMOTE_WINDOWS_CODEX_BIN` | Codex executable on Windows |
+| `windows_t3_port` | `CODEX_REMOTE_WINDOWS_T3_PORT` | Windows T3 loopback port for this task slot |
 
 With `host: local`, `backend` must be `t3` and `provider` must be `codex`.
 `create` records bounded local paths, `prepare` fetches the configured base and
-creates an isolated worktree, and `serve-local` runs that task's T3 server in the
+creates an isolated worktree, and `serve-task` runs that task's T3 server in the
 foreground without holding the controller database lock. Run it under a trusted
 service manager. `run` and `status` use the recorded T3 data directory and port.
+The former `serve-local` spelling remains a compatibility alias.
 
 The local Codex profile remains leased to the task across app handoffs. Stop the
 T3 server before `handoff TASK --to app`; start it before `handoff TASK --to t3`.
@@ -298,6 +379,11 @@ credential. Task Scheduler owns `codex-remote.exe` directly so process state and
 automatic restart reflect the real worker lifetime.
 On Windows, `local_t3_bin` must name the versioned `t3.exe`, not the interactive
 `t3.cmd` launcher, so the controller remains the tracked parent process.
+
+With `host: windows`, the same backend/provider restriction applies, but the
+controller and state live on another computer. All `windows_*_root` and binary
+fields refer to Windows. SSH identity and host-key policy stay in the controller
+user's SSH configuration, never YAML.
 
 `CODEX_REMOTE_STATE` or global `--state PATH` selects the state directory, defaulting
 to `~/.local/state/codex-remote-runner`. It must be private (0700). Keep the
