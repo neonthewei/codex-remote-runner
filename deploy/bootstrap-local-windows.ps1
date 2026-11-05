@@ -14,6 +14,7 @@ param(
     [string]$T3Path,
     [string]$CodexPath,
     [string]$TailscalePath = 'C:\Program Files\Tailscale\tailscale.exe',
+    [string]$SkillRoot,
     [switch]$Rebuild
 )
 
@@ -193,11 +194,29 @@ if ($LASTEXITCODE -ne 0) { throw 'local task service installation failed' }
 $finalStatus = & $BinaryPath --config $ConfigPath --state $StatePath status $TaskId
 if ($LASTEXITCODE -ne 0) { throw 'local task did not pass its final status check' }
 
+$skillPath = $null
+if ($SkillRoot) {
+    $SkillRoot = [System.IO.Path]::GetFullPath($SkillRoot)
+    New-Item -ItemType Directory -Force -Path $SkillRoot | Out-Null
+    $skillPath = Join-Path $SkillRoot 'instabox-ticket'
+    $skillSource = Join-Path $checkoutRoot 'skills\instabox-ticket'
+    if (Test-Path -LiteralPath $skillPath) {
+        $existingSkill = Get-Item -LiteralPath $skillPath -Force
+        $target = @($existingSkill.Target) | Select-Object -First 1
+        if (!$target -or [System.IO.Path]::GetFullPath($target) -ne [System.IO.Path]::GetFullPath($skillSource)) {
+            throw "an unrelated skill installation already exists: $skillPath"
+        }
+    } else {
+        New-Item -ItemType Junction -Path $skillPath -Target $skillSource | Out-Null
+    }
+}
+
 [pscustomobject]@{
     task = $TaskId
     config = $ConfigPath
     state = $StatePath
     binary = $BinaryPath
+    skill = $skillPath
     tailnet = $publicUrl
     pairing = 'Run pair with a private output file; never paste its contents into chat.'
     status = ($finalStatus -join [Environment]::NewLine | ConvertFrom-Json)

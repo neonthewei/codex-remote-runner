@@ -103,7 +103,8 @@ pwsh -File deploy/bootstrap-local-windows.ps1 `
   -LocalRepoRoot C:\src\your-repository `
   -TaskId remote-dev `
   -LocalPort 3784 `
-  -TailscaleHttpsPort 10000
+  -TailscaleHttpsPort 10000 `
+  -SkillRoot "$HOME\.grok\skills"
 ```
 
 Existing config, controller state and task worktrees are preserved. A conflicting
@@ -113,6 +114,11 @@ as the same signed-in Windows user that owns the Codex login. See
 for agent instructions, verification and handoff rules. An existing installed
 binary is reused; pass `-Rebuild` only during an intentional controller upgrade
 after stopping its scheduled task.
+
+`-SkillRoot` is optional. Point it at the current agent's documented skill
+directory to create a Windows junction without copying or replacing an existing
+skill. Grok commonly uses `$HOME\.grok\skills`; Codex commonly uses
+`$HOME\.codex\skills`.
 
 ## Configure and log in
 

@@ -70,7 +70,8 @@ pwsh -File deploy/bootstrap-local-windows.ps1 `
   -LocalRepoRoot C:\absolute\path\to\repository `
   -TaskId remote-dev `
   -LocalPort 3784 `
-  -TailscaleHttpsPort 10000
+  -TailscaleHttpsPort 10000 `
+  -SkillRoot "$HOME\.grok\skills"
 ```
 
 Pass `-Repository OWNER/REPO` only when the source checkout's `origin` is not a
@@ -84,6 +85,10 @@ requested Tailscale HTTPS port belongs to another service.
 An existing controller binary is reused. For an intentional upgrade, stop its
 scheduled task and pass `-Rebuild`; do not attempt to replace a running Windows
 executable.
+When `-SkillRoot` is supplied, the bootstrap creates an `instabox-ticket`
+junction to this checkout without replacing an existing installation. Use the
+calling agent's documented skill directory. Windows agents invoke
+`skills/instabox-ticket/scripts/run.ps1`; Unix agents continue to use `run.sh`.
 
 The script does not automate Codex authentication. If Codex is not already
 authenticated, stop and let the operator complete the official login. It also

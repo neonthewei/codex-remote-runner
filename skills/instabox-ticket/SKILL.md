@@ -6,9 +6,10 @@ description: Run or resume guarded Codex coding tasks in Instabox VMs or Windows
 # Instabox tasks
 
 Read the repository README for setup and docs/operations.md for configuration and
-recovery. Use `sh scripts/run.sh` from this skill directory instead of `ib-ticket`
-below. The wrapper resolves the trusted checkout through symlinks and executes
-bin/ib-ticket; build it with `go build -o bin/ib-ticket .` first.
+recovery. On Unix use `sh scripts/run.sh` from this skill directory instead of
+`ib-ticket` below. On Windows use `pwsh -File scripts/run.ps1`. The wrappers
+resolve the trusted checkout or installed controller. Build or install the binary
+before using them.
 
 For installation on a bot's own host, follow the bot self-install procedure in
 docs/operations.md. Reuse existing config, credential keys, state and skill links.
