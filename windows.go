@@ -9,9 +9,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 type windowsWorkerRequest struct {
@@ -34,6 +39,8 @@ type windowsWorkerPolicy struct {
 	SetupArgs    []string `json:"setup_args,omitempty"`
 	SetupPaths   []string `json:"setup_paths,omitempty"`
 	T3Port       int      `json:"t3_port"`
+	T3PortStart  int      `json:"t3_port_start,omitempty"`
+	T3PortEnd    int      `json:"t3_port_end,omitempty"`
 }
 
 type windowsHost struct {
@@ -52,7 +59,8 @@ func (p windowsWorkerPolicy) localConfig() Config {
 	c.LocalWorktreeRoot = normalizeWindowsPath(p.WorktreeRoot)
 	c.LocalT3Bin = normalizeWindowsPath(p.T3Bin)
 	c.LocalCodexBin = normalizeWindowsPath(p.CodexBin)
-	c.LocalT3Port = p.T3Port
+	start, _, _ := p.portRange()
+	c.LocalT3Port = start
 	return c
 }
 
@@ -125,7 +133,17 @@ func (w *windowsHost) Health() (map[string]string, error) {
 	result := map[string]string{}
 	err := w.call(&result, windowsWorkerRequest{Operation: "health"}, 15*time.Second)
 	if err == nil {
-		expected := map[string]string{"repo_root": normalizeWindowsPath(w.config.WindowsRepoRoot), "worktree_root": normalizeWindowsPath(w.config.WindowsWorktreeRoot), "state_root": normalizeWindowsPath(w.config.WindowsStateRoot), "t3_port": fmt.Sprint(w.config.WindowsT3Port), "version": Version, "protocol": windowsWorkerProtocol, "status": "ready"}
+		start, end, rangeErr := w.config.windowsPortRange()
+		if rangeErr != nil {
+			return nil, rangeErr
+		}
+		expected := map[string]string{"repo_root": normalizeWindowsPath(w.config.WindowsRepoRoot), "worktree_root": normalizeWindowsPath(w.config.WindowsWorktreeRoot), "state_root": normalizeWindowsPath(w.config.WindowsStateRoot), "version": Version, "protocol": windowsWorkerProtocol, "status": "ready"}
+		if result["t3_port_start"] == "" && result["t3_port_end"] == "" && start == end {
+			expected["t3_port"] = fmt.Sprint(start)
+		} else {
+			expected["t3_port_start"] = fmt.Sprint(start)
+			expected["t3_port_end"] = fmt.Sprint(end)
+		}
 		for key, value := range expected {
 			if !strings.EqualFold(result[key], value) {
 				return nil, errors.New("Windows worker policy does not match controller configuration")
@@ -172,7 +190,30 @@ func (w *windowsHost) Serve(t Task) error {
 	}
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	return runManagedProcess(cmd)
+	stop := make(chan struct{})
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	go func() {
+		select {
+		case <-signals:
+			close(stop)
+		case <-stop:
+		}
+	}()
+	err = runManagedProcessUntil(cmd, stop)
+	select {
+	case <-stop:
+		if stopErr := w.Stop(t); stopErr != nil {
+			return stopErr
+		}
+	default:
+	}
+	return err
+}
+
+func (w *windowsHost) Stop(t Task) error {
+	return w.call(nil, windowsWorkerRequest{Operation: "stop", Task: t}, 20*time.Second)
 }
 
 func runWindowsWorker(input io.Reader, args []string) (any, error) {
@@ -202,8 +243,12 @@ func (p windowsWorkerPolicy) Validate() error {
 			return fmt.Errorf("Windows worker %s must be an absolute Windows path", name)
 		}
 	}
-	if p.T3Port < 1024 || p.T3Port > 65535 {
-		return errors.New("Windows worker t3_port must be between 1024 and 65535")
+	start, end, err := p.portRange()
+	if err != nil {
+		return err
+	}
+	if start < 1024 || end > 65535 || start > end {
+		return errors.New("Windows worker T3 port range must be between 1024 and 65535")
 	}
 	if p.SetupBin != "" && !windowsAbsolutePath(p.SetupBin) {
 		return errors.New("Windows worker setup_bin must be an absolute Windows path")
@@ -222,6 +267,19 @@ func (p windowsWorkerPolicy) Validate() error {
 	return nil
 }
 
+func (p windowsWorkerPolicy) portRange() (int, int, error) {
+	if p.T3PortStart == 0 && p.T3PortEnd == 0 {
+		if p.T3Port < 1024 || p.T3Port > 65535 {
+			return 0, 0, errors.New("Windows worker t3_port must be between 1024 and 65535")
+		}
+		return p.T3Port, p.T3Port, nil
+	}
+	if p.T3PortStart == 0 || p.T3PortEnd == 0 {
+		return 0, 0, errors.New("Windows worker t3_port_start and t3_port_end must be configured together")
+	}
+	return p.T3PortStart, p.T3PortEnd, nil
+}
+
 func dispatchWindowsWorker(input io.Reader, policy windowsWorkerPolicy) (any, error) {
 	decoder := json.NewDecoder(io.LimitReader(input, 1<<20))
 	decoder.DisallowUnknownFields()
@@ -237,7 +295,8 @@ func dispatchWindowsWorker(input io.Reader, policy windowsWorkerPolicy) (any, er
 		return nil, errors.New("Windows worker request has the wrong host")
 	}
 	if request.Operation != "health" {
-		if !strings.EqualFold(normalizeWindowsPath(request.Task.SourceRoot), normalizeWindowsPath(policy.RepoRoot)) || !windowsWithin(policy.WorktreeRoot, request.Task.Worktree) || !windowsWithin(policy.StateRoot, request.Task.T3Home) || request.Task.T3Port != policy.T3Port {
+		start, end, _ := policy.portRange()
+		if !strings.EqualFold(normalizeWindowsPath(request.Task.SourceRoot), normalizeWindowsPath(policy.RepoRoot)) || !windowsWithin(policy.WorktreeRoot, request.Task.Worktree) || !windowsWithin(policy.StateRoot, request.Task.T3Home) || request.Task.T3Port < start || request.Task.T3Port > end {
 			return nil, errors.New("Windows worker request escaped its policy")
 		}
 	}
@@ -249,7 +308,8 @@ func dispatchWindowsWorker(input io.Reader, policy windowsWorkerPolicy) (any, er
 		if policy.SetupBin != "" {
 			setup = "configured"
 		}
-		return map[string]string{"status": "ready", "version": Version, "protocol": windowsWorkerProtocol, "repo_root": normalizeWindowsPath(policy.RepoRoot), "worktree_root": normalizeWindowsPath(policy.WorktreeRoot), "state_root": normalizeWindowsPath(policy.StateRoot), "t3_port": fmt.Sprint(policy.T3Port), "worktree_setup": setup}, nil
+		start, end, _ := policy.portRange()
+		return map[string]string{"status": "ready", "version": Version, "protocol": windowsWorkerProtocol, "repo_root": normalizeWindowsPath(policy.RepoRoot), "worktree_root": normalizeWindowsPath(policy.WorktreeRoot), "state_root": normalizeWindowsPath(policy.StateRoot), "t3_port": fmt.Sprint(start), "t3_port_start": fmt.Sprint(start), "t3_port_end": fmt.Sprint(end), "worktree_setup": setup}, nil
 	case "prepare":
 		return nil, local.Prepare(request.Task, request.Base, request.Branch)
 	case "run":
@@ -271,10 +331,86 @@ func dispatchWindowsWorker(input io.Reader, policy windowsWorkerPolicy) (any, er
 		cmd.Env = localEnvironment(workerConfig)
 		cmd.Stdout = io.Discard
 		cmd.Stderr = io.Discard
-		return nil, runManagedProcess(cmd)
+		return nil, serveWindowsTask(cmd, request.Task)
+	case "stop":
+		return nil, stopWindowsTask(local, request.Task)
 	default:
 		return nil, errors.New("unsupported Windows worker operation")
 	}
+}
+
+func windowsTaskControlPath(t Task, name string) string {
+	return filepath.Join(filepath.FromSlash(t.T3Home), name)
+}
+
+func serveWindowsTask(cmd *exec.Cmd, t Task) error {
+	lock := flock.New(windowsTaskControlPath(t, "serve.lock"))
+	locked, err := lock.TryLock()
+	if err != nil {
+		return errors.New("cannot acquire Windows task service lock")
+	}
+	if !locked {
+		return errors.New("Windows task T3 service is already starting or online")
+	}
+	defer lock.Unlock()
+	stopPath := windowsTaskControlPath(t, "stop.request")
+	if err = os.Remove(stopPath); err != nil && !os.IsNotExist(err) {
+		return errors.New("cannot clear stale Windows task stop request")
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if _, statErr := os.Stat(stopPath); statErr == nil {
+					close(stop)
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	err = runManagedProcessUntil(cmd, stop)
+	close(done)
+	_ = os.Remove(stopPath)
+	return err
+}
+
+func stopWindowsTask(local *localHost, t Task) error {
+	lock := flock.New(windowsTaskControlPath(t, "serve.lock"))
+	locked, err := lock.TryLock()
+	if err != nil {
+		return errors.New("cannot inspect Windows task service lock")
+	}
+	if locked {
+		_ = lock.Unlock()
+		if local.Online(t) {
+			return errors.New("Windows task T3 is online outside worker management; stop it once before upgrading")
+		}
+		return nil
+	}
+	stopPath := windowsTaskControlPath(t, "stop.request")
+	if err = os.WriteFile(stopPath, []byte("stop\n"), 0600); err != nil {
+		return errors.New("cannot request Windows task stop")
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(250 * time.Millisecond)
+		locked, err = lock.TryLock()
+		if err != nil {
+			return errors.New("cannot verify Windows task stop")
+		}
+		if locked {
+			_ = lock.Unlock()
+			_ = os.Remove(stopPath)
+			return nil
+		}
+	}
+	return errors.New("Windows task stop is uncertain; inspect before retrying")
 }
 
 func windowsWithin(root, target string) bool {

@@ -19,5 +19,24 @@ func killProcessGroup(cmd *exec.Cmd) error {
 }
 
 func runManagedProcess(cmd *exec.Cmd) error {
-	return cmd.Run()
+	return runManagedProcessUntil(cmd, nil)
+}
+
+func runManagedProcessUntil(cmd *exec.Cmd, stop <-chan struct{}) error {
+	configureProcessGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	wait := make(chan error, 1)
+	go func() { wait <- cmd.Wait() }()
+	select {
+	case err := <-wait:
+		return err
+	case <-stop:
+		if err := killProcessGroup(cmd); err != nil {
+			return err
+		}
+		<-wait
+		return nil
+	}
 }

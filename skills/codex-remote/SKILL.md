@@ -26,9 +26,10 @@ run arbitrary commands such as `hostname`.
 
 Run `create`, `prepare`, `run`, `status` and recovery commands locally through
 this skill wrapper. Keep `serve-task TASK` under this computer's persistent
-service manager. Its SSH session owns the Windows T3 process. If a request or SSH
-connection ends ambiguously, inspect state and use the documented recovery path;
-never replay the prompt.
+service manager. Each task receives a distinct port from the Windows worker's
+bounded range. Stop it with `stop-task TASK`; never kill a PID that was not
+verified through the worker. If a request or SSH connection ends ambiguously,
+inspect state and use the documented recovery path; never replay the prompt.
 
 For `host: local` on Windows, use the Windows local bot self-install procedure.
 Inspect existing paths, tasks and Tailscale mappings before running

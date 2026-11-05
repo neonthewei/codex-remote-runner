@@ -13,6 +13,12 @@ PTY or forwarding with that key. The worker accepts only named Git/T3 operations
 and validates task paths against an operator-owned policy file. This bounds the
 transport entrypoint; it does not sandbox Codex. A dispatched coding turn runs as
 the Windows user and can exercise that account's filesystem and process authority.
+Task ports must remain inside the operator-owned range. Managed stop requests are
+written only beneath the validated task state directory and are consumed by the
+worker process that owns that task's Windows Job Object; the controller cannot
+submit an arbitrary PID to terminate. Port allocation is serialized by the
+controller state lock, so one worker policy must not be shared by independent
+controller state databases with overlapping ranges.
 Compromise of the controller permits arbitrary task prompts, while compromise of
 Windows can forge worker responses. Keep the policy and controller state private,
 verify the host key out of band, restrict SSH to the tailnet and never use the T3

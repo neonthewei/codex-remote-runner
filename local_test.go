@@ -12,6 +12,7 @@ type fakeLocalControl struct {
 	online        bool
 	prepared      bool
 	served        bool
+	stopped       bool
 	branch        string
 	branchMissing bool
 	prepareErr    error
@@ -49,6 +50,12 @@ func (f *fakeLocalControl) Online(Task) bool {
 
 func (f *fakeLocalControl) Serve(Task) error {
 	f.served = true
+	return nil
+}
+
+func (f *fakeLocalControl) Stop(Task) error {
+	f.stopped = true
+	f.online = false
 	return nil
 }
 

@@ -29,6 +29,7 @@ Commands:
   check-host                      Verify the configured remote Windows worker
   create --task ID                Create one task VM (configurable user/org/size)
   serve-task ID                   Run one worktree task's T3 server in the foreground
+  stop-task ID                    Stop one managed Windows task's T3 server
   serve-local ID                  Compatibility alias for serve-task
   handoff ID --to app|t3          Transfer the local task's single-writer owner
   prepare ID                      Clone configured repository and create task branch
@@ -203,7 +204,7 @@ func execute(args []string) (any, error) {
 		}
 		return map[string]string{"status": "key-created"}, nil
 	}
-	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true, "serve-task": true, "serve-local": true, "handoff": true}
+	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true, "serve-task": true, "stop-task": true, "serve-local": true, "handoff": true}
 	if !valid[action] {
 		return nil, errors.New("unknown command")
 	}
@@ -269,6 +270,8 @@ func execute(args []string) (any, error) {
 		return r.Bootstrap(c)
 	case "status":
 		return r.Status(ticket)
+	case "stop-task":
+		return map[string]string{"status": "stopped"}, r.StopTask(ticket)
 	case "handoff":
 		return r.HandoffLocal(ticket, *owner)
 	case "activate":

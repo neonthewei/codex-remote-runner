@@ -58,8 +58,8 @@ part of the agent control path.
 
 The Windows worker is the same reviewed `codex-remote` binary. Its hidden
 `worker` entrypoint accepts one bounded JSON request on standard input and only
-implements health, prepare, run, thread status, pairing, online, branch and T3
-service operations. The Windows installer binds the dedicated public key to an
+implements health, prepare, run, thread status, pairing, online, branch and
+managed T3 start/stop operations. The Windows installer binds the dedicated public key to an
 encoded PowerShell forced command and disables forwarding and PTY allocation.
 The controller opens SSH without a remote shell command and writes the request to
 standard input. Prompt text is never placed in the process list.
@@ -76,7 +76,8 @@ pwsh -File deploy/install-windows-worker.ps1 `
   -StateRoot C:\Users\you\.codex\state\codex-remote-runner `
   -T3Path C:\Users\you\.t3\runtime\versions\VERSION\t3.exe `
   -CodexPath C:\path\to\codex.exe `
-  -T3Port 3784
+  -T3PortStart 3784 `
+  -T3PortEnd 3884
 ```
 
 An optional repository bootstrap is pinned on the Windows host with
@@ -112,10 +113,13 @@ to verify the forced worker protocol.
 Copy `config.windows.example.yaml` outside the checkout, fill every absolute
 Windows path and keep it private. `create` records the remote host and bounded
 paths in the controller's local state. `prepare`, `run`, `status`, `pair`,
-`recover-prepare` and `recover-turn` then use the SSH worker. Keep
-`serve-task TASK` running under the bot computer's service manager; that
-persistent SSH process owns the remote T3 process. A dropped SSH session stops
-the process tree and the service manager restarts the same task state.
+`recover-prepare` and `recover-turn` then use the SSH worker. The controller
+allocates a distinct port from the bounded worker range for each task. Keep
+`serve-task TASK` running under the bot computer's service manager; the remote
+worker owns that task's T3 process tree in a Windows Job Object. A normal
+SIGTERM or Ctrl-C sends a structured stop request. After an abrupt controller
+loss, use `stop-task TASK` before restarting the service; it signals the owning
+worker through task-private state rather than killing an unverified PID.
 
 The private T3 HTTPS origin remains optional for human review. The bot does not
 need a paired browser. Tailscale Serve on Windows may continue to proxy the T3
@@ -129,6 +133,8 @@ Acceptance requires:
   the expected Windows path and branch;
 - `serve-task` survives under the bot-side service manager and stops the remote
   T3 process when deliberately stopped;
+- two tasks receive different bounded ports, and `stop-task` for one leaves the
+  other online;
 - one harmless `run` executes through the structured worker and returns the
   original T3 thread/run identifiers;
 - an interrupted start is recovered with `recover-turn` and never replayed; and
@@ -366,7 +372,9 @@ rejects unknown YAML fields and multiple documents. It does not load `.env` file
 | `windows_state_root` | `CODEX_REMOTE_WINDOWS_STATE_ROOT` | Private Windows directory for T3 task data |
 | `windows_t3_bin` | `CODEX_REMOTE_WINDOWS_T3_BIN` | Versioned T3 executable on Windows |
 | `windows_codex_bin` | `CODEX_REMOTE_WINDOWS_CODEX_BIN` | Codex executable on Windows |
-| `windows_t3_port` | `CODEX_REMOTE_WINDOWS_T3_PORT` | Windows T3 loopback port for this task slot |
+| `windows_t3_port` | `CODEX_REMOTE_WINDOWS_T3_PORT` | Legacy single-slot Windows T3 loopback port |
+| `windows_t3_port_start` | `CODEX_REMOTE_WINDOWS_T3_PORT_START` | First allowed Windows T3 loopback port |
+| `windows_t3_port_end` | `CODEX_REMOTE_WINDOWS_T3_PORT_END` | Last allowed Windows T3 loopback port |
 
 With `host: local`, `backend` must be `t3` and `provider` must be `codex`.
 `create` records bounded local paths, `prepare` fetches the configured base and

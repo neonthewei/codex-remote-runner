@@ -6,7 +6,9 @@ param(
     [Parameter(Mandatory = $true)][string]$StateRoot,
     [Parameter(Mandatory = $true)][string]$T3Path,
     [Parameter(Mandatory = $true)][string]$CodexPath,
-    [Parameter(Mandatory = $true)][ValidateRange(1024, 65535)][int]$T3Port,
+    [ValidateRange(0, 65535)][int]$T3Port = 0,
+    [ValidateRange(0, 65535)][int]$T3PortStart = 0,
+    [ValidateRange(0, 65535)][int]$T3PortEnd = 0,
     [string]$InstallPath = "$HOME\.local\bin\codex-remote.exe",
     [string]$PolicyPath = "$HOME\.codex\state\codex-remote-runner\windows-worker.json",
     [string]$GoPath,
@@ -19,6 +21,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$usingLegacyPort = $T3PortStart -eq 0 -and $T3PortEnd -eq 0
+if ($usingLegacyPort) {
+    if ($T3Port -lt 1024 -or $T3Port -gt 65535) { throw 'Provide -T3Port or a valid -T3PortStart/-T3PortEnd range.' }
+    $T3PortStart = $T3Port
+    $T3PortEnd = $T3Port
+} elseif ($T3PortStart -lt 1024 -or $T3PortEnd -gt 65535 -or $T3PortStart -gt $T3PortEnd) {
+    throw 'T3 port range must be between 1024 and 65535.'
+}
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
 if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Run this installer from an elevated PowerShell session.'
@@ -115,7 +125,9 @@ $policy = [ordered]@{
     setup_bin = $setupExecutablePolicyPath
     setup_args = @($SetupArguments)
     setup_paths = @($resolvedSetupPaths)
-    t3_port = $T3Port
+    t3_port = if ($usingLegacyPort) { $T3Port } else { 0 }
+    t3_port_start = $T3PortStart
+    t3_port_end = $T3PortEnd
 } | ConvertTo-Json
 [System.IO.File]::WriteAllText($PolicyPath, $policy + [Environment]::NewLine)
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name

@@ -19,6 +19,10 @@ func killProcessGroup(cmd *exec.Cmd) error {
 }
 
 func runManagedProcess(cmd *exec.Cmd) error {
+	return runManagedProcessUntil(cmd, nil)
+}
+
+func runManagedProcessUntil(cmd *exec.Cmd, stop <-chan struct{}) error {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return err
@@ -45,5 +49,16 @@ func runManagedProcess(cmd *exec.Cmd) error {
 		_ = cmd.Wait()
 		return err
 	}
-	return cmd.Wait()
+	wait := make(chan error, 1)
+	go func() { wait <- cmd.Wait() }()
+	select {
+	case err = <-wait:
+		return err
+	case <-stop:
+		if err = windows.TerminateJobObject(job, 1); err != nil {
+			return err
+		}
+		<-wait
+		return nil
+	}
 }

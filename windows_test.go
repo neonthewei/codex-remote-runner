@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func windowsConfig() Config {
@@ -68,6 +70,9 @@ func TestWindowsConfigurationAndLifecycle(t *testing.T) {
 	if err != nil || status["t3_online"] != true {
 		t.Fatal(status, err)
 	}
+	if err = r.StopTask(task.Ticket); err != nil || !control.stopped {
+		t.Fatal(err)
+	}
 }
 
 func TestWindowsConfigurationRejectsIncompleteRemoteHost(t *testing.T) {
@@ -80,6 +85,70 @@ func TestWindowsConfigurationRejectsIncompleteRemoteHost(t *testing.T) {
 	c.WindowsRepoRoot = "/not/windows"
 	if err := c.Validate(); err == nil {
 		t.Fatal("non-Windows repository path accepted")
+	}
+	c = windowsConfig()
+	c.WindowsT3PortStart = 3784
+	if err := c.Validate(); err == nil {
+		t.Fatal("partial Windows T3 port range accepted")
+	}
+}
+
+func TestWindowsTasksAllocateDistinctPorts(t *testing.T) {
+	c := windowsConfig()
+	c.WindowsT3PortStart = 3784
+	c.WindowsT3PortEnd = 3786
+	r, _, _ := setup(t)
+	r.Config = c
+	first, err := r.Create("REMOTE-A", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := r.Create("REMOTE-B", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.T3Port != 3784 || second.T3Port != 3785 {
+		t.Fatal(first.T3Port, second.T3Port)
+	}
+}
+
+func TestWindowsSinglePortConfigurationRejectsSecondTask(t *testing.T) {
+	c := windowsConfig()
+	r, _, _ := setup(t)
+	r.Config = c
+	if _, err := r.Create("REMOTE-A", c, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Create("REMOTE-B", c, false); err == nil || !strings.Contains(err.Error(), "no Windows T3 ports") {
+		t.Fatal(err)
+	}
+}
+
+func TestWindowsPreparingTaskMovesOffLegacyPortCollision(t *testing.T) {
+	c := windowsConfig()
+	c.WindowsT3PortStart = 3784
+	c.WindowsT3PortEnd = 3786
+	r, _, _ := setup(t)
+	r.Config = c
+	first, err := r.Create("REMOTE-A", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.Ticket = "REMOTE-B"
+	second.Name = "remote-b-" + r.State.Namespace[:8]
+	second.Worktree = windowsJoin(c.WindowsWorktreeRoot, second.Name)
+	second.T3Home = windowsJoin(c.WindowsStateRoot, second.Ticket)
+	second.Phase = "preparing"
+	second.Repo = c.Repo
+	second.Base = c.Base
+	second.Branch = "remote-b-agent"
+	if err = r.State.Save(second); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := r.ensureWindowsTaskPort(second)
+	if err != nil || updated.T3Port != 3785 {
+		t.Fatal(updated.T3Port, err)
 	}
 }
 
@@ -100,6 +169,9 @@ func TestWindowsInstallerSecuresHostPrivateKeys(t *testing.T) {
 		"SetupExecutablePath",
 		"setup_args = @($SetupArguments)",
 		"setup_paths = @($resolvedSetupPaths)",
+		"T3PortStart",
+		"t3_port_start = $T3PortStart",
+		"t3_port_end = $T3PortEnd",
 	} {
 		if !strings.Contains(installer, required) {
 			t.Fatalf("Windows installer does not enforce host-key ACL requirement %q", required)
@@ -196,6 +268,23 @@ func TestWindowsWorkerHealthIsScopedAndVersioned(t *testing.T) {
 	}
 }
 
+func TestWindowsWorkerAcceptsOnlyPortsInsideConfiguredRange(t *testing.T) {
+	policy := testWindowsWorkerPolicy()
+	policy.T3Port = 0
+	policy.T3PortStart = 3784
+	policy.T3PortEnd = 3786
+	request := windowsWorkerRequest{Operation: "unsupported", Task: Task{Host: "windows", SourceRoot: policy.RepoRoot, Worktree: policy.WorktreeRoot + "/task", T3Home: policy.StateRoot + "/task", T3Port: 3785}}
+	raw, _ := json.Marshal(request)
+	if _, err := dispatchWindowsWorker(bytes.NewReader(raw), policy); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatal(err)
+	}
+	request.Task.T3Port = 4000
+	raw, _ = json.Marshal(request)
+	if _, err := dispatchWindowsWorker(bytes.NewReader(raw), policy); err == nil || !strings.Contains(err.Error(), "escaped") {
+		t.Fatal(err)
+	}
+}
+
 func TestWindowsWorkerLoadsPrivatePolicyFile(t *testing.T) {
 	policy := testWindowsWorkerPolicy()
 	rawPolicy, err := json.Marshal(policy)
@@ -253,5 +342,38 @@ func TestWindowsWorkerPolicyRejectsEscapedTaskPaths(t *testing.T) {
 	raw, _ := json.Marshal(request)
 	if _, err := dispatchWindowsWorker(bytes.NewReader(raw), policy); err == nil || !strings.Contains(err.Error(), "escaped") {
 		t.Fatal(err)
+	}
+}
+
+func TestWindowsManagedTaskStopReleasesServiceLock(t *testing.T) {
+	if os.Getenv("CODEX_REMOTE_MANAGED_TASK_HELPER") == "1" {
+		time.Sleep(time.Hour)
+		return
+	}
+	home := t.TempDir()
+	task := Task{Ticket: "managed-stop", T3Home: home, T3Port: 49152}
+	cmd := exec.Command(os.Args[0], "-test.run", "TestWindowsManagedTaskStopReleasesServiceLock")
+	cmd.Env = append(os.Environ(), "CODEX_REMOTE_MANAGED_TASK_HELPER=1")
+	served := make(chan error, 1)
+	go func() { served <- serveWindowsTask(cmd, task) }()
+	lockPath := windowsTaskControlPath(task, "serve.lock")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(lockPath); err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	local := &localHost{}
+	if err := stopWindowsTask(local, task); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-served:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("managed task did not stop")
 	}
 }

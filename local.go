@@ -21,6 +21,7 @@ type LocalControl interface {
 	Pair(Task, string) (string, error)
 	Online(Task) bool
 	Serve(Task) error
+	Stop(Task) error
 	Branch(Task) (string, error)
 }
 
@@ -68,7 +69,10 @@ func (r *Runner) createLocal(ticket string, c Config) (Task, error) {
 		root = normalizeWindowsPath(c.WindowsWorktreeRoot)
 		source = normalizeWindowsPath(c.WindowsRepoRoot)
 		t3Root = normalizeWindowsPath(c.WindowsStateRoot)
-		port = c.WindowsT3Port
+		port, err = r.allocateWindowsPort(c, ticket)
+		if err != nil {
+			return Task{}, err
+		}
 	} else {
 		root, err = filepath.Abs(expandHome(c.LocalWorktreeRoot))
 		if err != nil {
@@ -97,6 +101,64 @@ func (r *Runner) createLocal(ticket string, c Config) (Task, error) {
 	return t, nil
 }
 
+func (r *Runner) allocateWindowsPort(c Config, ticket string) (int, error) {
+	start, end, err := c.windowsPortRange()
+	if err != nil {
+		return 0, err
+	}
+	rows, err := r.State.DB.Query("SELECT ticket,t3_port FROM windows_tasks")
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	used := map[int]bool{}
+	for rows.Next() {
+		var existing string
+		var port int
+		if err = rows.Scan(&existing, &port); err != nil {
+			return 0, err
+		}
+		if existing != ticket {
+			used[port] = true
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return 0, err
+	}
+	for port := start; port <= end; port++ {
+		if !used[port] {
+			return port, nil
+		}
+	}
+	return 0, errors.New("no Windows T3 ports are available in the configured range")
+}
+
+func (r *Runner) ensureWindowsTaskPort(t Task) (Task, error) {
+	if t.Host != "windows" {
+		return t, nil
+	}
+	start, end, err := r.Config.windowsPortRange()
+	if err != nil {
+		return t, err
+	}
+	var conflicts int
+	if err = r.State.DB.QueryRow("SELECT count(*) FROM windows_tasks WHERE ticket<>? AND t3_port=?", t.Ticket, t.T3Port).Scan(&conflicts); err != nil {
+		return t, err
+	}
+	if t.T3Port >= start && t.T3Port <= end && conflicts == 0 {
+		return t, nil
+	}
+	if t.Phase != "created" && t.Phase != "preparing" {
+		return t, errors.New("active Windows task port conflicts with the configured range; stop and reconcile it before continuing")
+	}
+	port, err := r.allocateWindowsPort(r.Config, t.Ticket)
+	if err != nil {
+		return t, err
+	}
+	t.T3Port = port
+	return t, r.State.Save(t)
+}
+
 func isWorktreeHost(host string) bool {
 	return host == "local" || host == "windows"
 }
@@ -115,6 +177,10 @@ func within(root, target string) bool {
 }
 
 func (r *Runner) prepareLocal(t Task, repo, base string) (Task, error) {
+	var err error
+	if t, err = r.ensureWindowsTaskPort(t); err != nil {
+		return t, err
+	}
 	if t.Repo != "" {
 		if t.Repo != repo || t.Base != base {
 			return t, errors.New("task already owns another repo or base")
@@ -139,6 +205,10 @@ func (r *Runner) prepareLocal(t Task, repo, base string) (Task, error) {
 }
 
 func (r *Runner) recoverPrepareLocal(t Task) (Task, error) {
+	var portErr error
+	if t, portErr = r.ensureWindowsTaskPort(t); portErr != nil {
+		return t, portErr
+	}
 	if t.Phase != "preparing" || t.Repo == "" || t.Branch == "" {
 		return t, errors.New("task is not awaiting local preparation recovery")
 	}
@@ -247,6 +317,17 @@ func (r *Runner) ServeTask(ticket string) error {
 		return errors.New("serve-task requires a worktree task")
 	}
 	return r.localControl().Serve(t)
+}
+
+func (r *Runner) StopTask(ticket string) error {
+	t, err := r.State.Task(ticket)
+	if err != nil {
+		return err
+	}
+	if t.Host != "windows" {
+		return errors.New("stop-task currently requires a Windows worktree task")
+	}
+	return r.localControl().Stop(t)
 }
 
 func (r *Runner) HandoffLocal(ticket, owner string) (Task, error) {
@@ -391,6 +472,10 @@ func (l *localHost) Serve(t Task) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return runManagedProcess(cmd)
+}
+
+func (l *localHost) Stop(Task) error {
+	return errors.New("managed stop is not available for this local host")
 }
 
 func (l *localHost) Branch(t Task) (string, error) {

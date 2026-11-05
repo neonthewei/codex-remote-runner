@@ -21,4 +21,7 @@ windows_worktree_root: C:/Users/you/.codex/worktrees/remote-project
 windows_state_root: C:/Users/you/.codex/state/codex-remote-runner
 windows_t3_bin: C:/Users/you/.t3/runtime/versions/VERSION/t3.exe
 windows_codex_bin: C:/Users/you/AppData/Local/OpenAI/Codex/bin/VERSION/codex.exe
-windows_t3_port: 3784
+# Each active task receives one loopback port from this bounded range. Existing
+# single-slot installations may keep using windows_t3_port instead.
+windows_t3_port_start: 3784
+windows_t3_port_end: 3884

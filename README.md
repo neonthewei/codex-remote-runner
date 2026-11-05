@@ -66,7 +66,8 @@ pwsh -File deploy/install-windows-worker.ps1 `
   -StateRoot C:\Users\you\.codex\state\codex-remote-runner `
   -T3Path C:\Users\you\.t3\runtime\versions\VERSION\t3.exe `
   -CodexPath C:\path\to\codex.exe `
-  -T3Port 3784
+  -T3PortStart 3784 `
+  -T3PortEnd 3884
 ```
 
 Repositories that require a fresh-worktree bootstrap can bind one reviewed local
@@ -121,10 +122,17 @@ codex-remote serve-task remote-dev
 # From another bot process after serve-task is online:
 codex-remote run remote-dev --model gpt-6.1-sol --prompt-file /private/task.txt
 codex-remote status remote-dev
+
+# Stop only this task's managed Windows T3 process tree.
+codex-remote stop-task remote-dev
 ```
 
-The T3 HTTPS URL is optional human visibility. Grokbot's control path is the CLI
-and SSH worker protocol. See [remote Windows operations](docs/operations.md#remote-windows-host).
+Each Windows task receives a distinct loopback port from the installed range.
+`stop-task` signals the worker process that owns the task's Windows Job Object;
+it does not kill an unverified PID. A normal `serve-task` termination also sends
+that structured stop request. The T3 HTTPS URL is optional human visibility.
+Grokbot's control path is the CLI and SSH worker protocol. See
+[remote Windows operations](docs/operations.md#remote-windows-host).
 
 ## Same-computer Windows mode
 

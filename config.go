@@ -43,6 +43,8 @@ type Config struct {
 	WindowsT3Bin        string   `yaml:"windows_t3_bin"`
 	WindowsCodexBin     string   `yaml:"windows_codex_bin"`
 	WindowsT3Port       int      `yaml:"windows_t3_port"`
+	WindowsT3PortStart  int      `yaml:"windows_t3_port_start"`
+	WindowsT3PortEnd    int      `yaml:"windows_t3_port_end"`
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$`)
@@ -94,7 +96,7 @@ func loadConfig(path string, env func(string) (string, bool)) (Config, error) {
 			*p = v
 		}
 	}
-	for k, p := range map[string]*int{"VCPUS": &c.VCPUs, "MEM_MIB": &c.Memory, "LOCAL_T3_PORT": &c.LocalT3Port, "WINDOWS_T3_PORT": &c.WindowsT3Port} {
+	for k, p := range map[string]*int{"VCPUS": &c.VCPUs, "MEM_MIB": &c.Memory, "LOCAL_T3_PORT": &c.LocalT3Port, "WINDOWS_T3_PORT": &c.WindowsT3Port, "WINDOWS_T3_PORT_START": &c.WindowsT3PortStart, "WINDOWS_T3_PORT_END": &c.WindowsT3PortEnd} {
 		if v, ok := env("CODEX_REMOTE_" + k); ok {
 			n, e := strconv.Atoi(v)
 			if e != nil {
@@ -157,8 +159,12 @@ func (c Config) Validate() error {
 		if !sshAliasPattern.MatchString(c.WindowsSSHTarget) {
 			return errors.New("windows_ssh_target must be an SSH config alias")
 		}
-		if c.WindowsT3Port < 1024 || c.WindowsT3Port > 65535 {
-			return errors.New("windows_t3_port must be between 1024 and 65535")
+		start, end, err := c.windowsPortRange()
+		if err != nil {
+			return err
+		}
+		if start < 1024 || end > 65535 || start > end {
+			return errors.New("Windows T3 port range must be between 1024 and 65535")
 		}
 	}
 	if c.T3PublicURL != "" && !validT3Origin(c.T3PublicURL) {
@@ -204,6 +210,19 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (c Config) windowsPortRange() (int, int, error) {
+	if c.WindowsT3PortStart == 0 && c.WindowsT3PortEnd == 0 {
+		if c.WindowsT3Port < 1024 || c.WindowsT3Port > 65535 {
+			return 0, 0, errors.New("windows_t3_port must be between 1024 and 65535")
+		}
+		return c.WindowsT3Port, c.WindowsT3Port, nil
+	}
+	if c.WindowsT3PortStart == 0 || c.WindowsT3PortEnd == 0 {
+		return 0, 0, errors.New("windows_t3_port_start and windows_t3_port_end must be configured together")
+	}
+	return c.WindowsT3PortStart, c.WindowsT3PortEnd, nil
 }
 
 func windowsAbsolutePath(value string) bool {
