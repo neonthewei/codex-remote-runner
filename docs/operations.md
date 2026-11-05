@@ -79,6 +79,13 @@ pwsh -File deploy/install-windows-worker.ps1 `
   -T3Port 3784
 ```
 
+If the in-box OpenSSH service fails with error 1067, use
+[Microsoft's documented upgrade path](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release):
+obtain the latest Win64 MSI from the official PowerShell/Win32-OpenSSH release,
+verify its published digest, and pass its local path with `-OpenSSHMSIPath`. The
+installer rejects an MSI without a valid Microsoft Corporation Authenticode
+signature.
+
 The installer builds the worker, provisions OpenSSH Server if absent, disables
 password authentication, applies the required authorized-keys ACL and restricts
 the inbound SSH firewall rule to `100.64.0.0/10`. It keeps one backup of the
