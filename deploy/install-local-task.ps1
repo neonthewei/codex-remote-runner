@@ -9,13 +9,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $PSScriptRoot
-$runner = Join-Path $PSScriptRoot 'run-local-task.ps1'
 $taskName = "InstaboxTicketRunner-$TaskId"
-$logPath = Join-Path $StatePath "service-$TaskId.log"
-$pwsh = Join-Path $PSHOME 'pwsh.exe'
 
-foreach ($path in @($BinaryPath, $ConfigPath, $runner, $TailscalePath, $pwsh)) {
+foreach ($path in @($BinaryPath, $ConfigPath, $TailscalePath)) {
     if (!(Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "required file is missing: $path"
     }
@@ -30,8 +26,8 @@ if ($LASTEXITCODE -ne 0) {
     throw 'local task is not prepared'
 }
 
-$arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -BinaryPath "{1}" -ConfigPath "{2}" -StatePath "{3}" -TaskId "{4}" -LogPath "{5}"' -f $runner, $BinaryPath, $ConfigPath, $StatePath, $TaskId, $logPath
-$action = New-ScheduledTaskAction -Execute $pwsh -Argument $arguments -WorkingDirectory $root
+$arguments = '--config "{0}" --state "{1}" serve-local "{2}"' -f $ConfigPath, $StatePath, $TaskId
+$action = New-ScheduledTaskAction -Execute $BinaryPath -Argument $arguments -WorkingDirectory (Split-Path -Parent $BinaryPath)
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
@@ -53,7 +49,7 @@ for ($attempt = 0; $attempt -lt 60; $attempt++) {
     Start-Sleep -Seconds 1
 }
 if (!$ready) {
-    throw "scheduled task started but local T3 did not become ready; inspect $logPath"
+    throw 'scheduled task started but local T3 did not become ready'
 }
 
 & $TailscalePath serve --bg --yes "--https=$TailscaleHttpsPort" "http://127.0.0.1:$LocalPort" | Out-Null
@@ -68,5 +64,4 @@ $tailnetHost = $tailscaleStatus.Self.DNSName.TrimEnd('.')
     state = (Get-ScheduledTask -TaskName $taskName).State.ToString()
     local = "http://127.0.0.1:$LocalPort"
     tailnet = "https://$tailnetHost`:$TailscaleHttpsPort"
-    log = $logPath
 }

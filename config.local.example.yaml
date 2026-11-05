@@ -7,6 +7,6 @@ repo: owner/repo
 base: main
 local_repo_root: C:\path\to\repository
 local_worktree_root: C:\path\to\task-worktrees
-local_t3_bin: C:\Users\you\.local\bin\t3.cmd
+local_t3_bin: C:\Users\you\.t3\runtime\versions\VERSION\t3.exe
 local_codex_bin: C:\path\to\codex.exe
 local_t3_port: 3784

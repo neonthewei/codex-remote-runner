@@ -6,6 +6,7 @@ require (
 	github.com/99designs/keyring v1.2.2
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gofrs/flock v0.12.1
+	golang.org/x/sys v0.44.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.42.2
 )
@@ -24,7 +25,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
-	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/term v0.3.0 // indirect
 	modernc.org/libc v1.66.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

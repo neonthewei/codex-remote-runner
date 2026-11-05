@@ -320,7 +320,7 @@ func (l *localHost) Serve(t Task) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return runManagedProcess(cmd)
 }
 
 func (l *localHost) ensureProject(t Task) error {

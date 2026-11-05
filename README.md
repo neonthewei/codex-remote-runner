@@ -87,6 +87,10 @@ controller state, worktrees, and T3 history when removed. Use
 task data. It intentionally preserves the Tailscale listener
 because other local services may share that node configuration. Pairing
 credentials must still be written with `pair --output-file` and opened privately.
+The scheduler launches `ib-ticket.exe` directly and does not persist T3 startup
+output because that output contains a bootstrap pairing credential.
+Configure `local_t3_bin` with T3's real versioned `t3.exe` for the scheduled
+service; the interactive `t3.cmd` launcher can detach its child without a console.
 
 ## Configure and log in
 

@@ -220,6 +220,11 @@ service with automatic restart and configures one private Tailscale Serve HTTPS
 listener. It runs only after that Windows user signs in so it can reuse the same
 Codex login. The command arguments contain paths and task identity only; pairing
 tokens remain in explicitly selected private output files.
+T3 startup output is not persisted because it contains a bootstrap pairing
+credential. Task Scheduler owns `ib-ticket.exe` directly so process state and
+automatic restart reflect the real worker lifetime.
+On Windows, `local_t3_bin` must name the versioned `t3.exe`, not the interactive
+`t3.cmd` launcher, so the controller remains the tracked parent process.
 
 `IB_TICKET_STATE` or global `--state PATH` selects the state directory, defaulting
 to `~/.local/state/instabox-ticket-runner`. It must be private (0700). Keep the
