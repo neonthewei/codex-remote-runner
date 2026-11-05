@@ -81,20 +81,20 @@ func loadConfig(path string, env func(string) (string, bool)) (Config, error) {
 		c = v
 	}
 	for k, p := range map[string]*string{"HOST": &c.Host, "BACKEND": &c.Backend, "GUEST_BINARY": &c.GuestBinary, "T3_PUBLIC_URL": &c.T3PublicURL, "USER": &c.User, "ORG": &c.Org, "PROVIDER": &c.Provider, "REPO": &c.Repo, "BASE": &c.Base, "AUTO_SUSPEND": &c.AutoSuspend, "SNAPSHOT": &c.Snapshot, "CREDENTIAL_BACKEND": &c.CredentialBackend, "CREDENTIAL_KEY_FILE": &c.CredentialKeyFile, "LOCAL_REPO_ROOT": &c.LocalRepoRoot, "LOCAL_WORKTREE_ROOT": &c.LocalWorktreeRoot, "LOCAL_T3_BIN": &c.LocalT3Bin, "LOCAL_CODEX_BIN": &c.LocalCodexBin} {
-		if v, ok := env("IB_TICKET_" + k); ok {
+		if v, ok := env("CODEX_REMOTE_" + k); ok {
 			*p = v
 		}
 	}
 	for k, p := range map[string]*int{"VCPUS": &c.VCPUs, "MEM_MIB": &c.Memory, "LOCAL_T3_PORT": &c.LocalT3Port} {
-		if v, ok := env("IB_TICKET_" + k); ok {
+		if v, ok := env("CODEX_REMOTE_" + k); ok {
 			n, e := strconv.Atoi(v)
 			if e != nil {
-				return c, fmt.Errorf("IB_TICKET_%s must be an integer", k)
+				return c, fmt.Errorf("CODEX_REMOTE_%s must be an integer", k)
 			}
 			*p = n
 		}
 	}
-	if v, ok := env("IB_TICKET_SECRETS"); ok {
+	if v, ok := env("CODEX_REMOTE_SECRETS"); ok {
 		c.Secrets = nil
 		for _, s := range strings.Split(v, ",") {
 			if strings.TrimSpace(s) != "" {

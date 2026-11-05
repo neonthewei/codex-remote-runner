@@ -3,6 +3,6 @@ workspace_id: your-linear-workspace-uuid
 app_user_id: your-installed-agent-user-uuid
 team_ids: [your-allowed-team-uuid]
 user_ids: [your-allowed-human-user-uuid]
-access_token_file: "~/.config/instabox-ticket-runner/linear-access-token"
-webhook_secret_file: "~/.config/instabox-ticket-runner/linear-webhook-secret"
+access_token_file: "~/.config/codex-remote-runner/linear-access-token"
+webhook_secret_file: "~/.config/codex-remote-runner/linear-webhook-secret"
 dashboard_url: https://tasks.example.com

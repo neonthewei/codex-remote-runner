@@ -7,8 +7,8 @@ while [ -L "$script" ]; do
 done
 directory=$(CDPATH= cd -P -- "$(dirname -- "$script")" && pwd -P)
 root=$(CDPATH= cd -- "$directory/../../.." && pwd -P)
-if [ ! -x "$root/bin/ib-ticket" ]; then
-  echo 'Build the trusted checkout first: go build -o bin/ib-ticket .' >&2
+if [ ! -x "$root/bin/codex-remote" ]; then
+  echo 'Build the trusted checkout first: go build -o bin/codex-remote .' >&2
   exit 1
 fi
-exec "$root/bin/ib-ticket" "$@"
+exec "$root/bin/codex-remote" "$@"

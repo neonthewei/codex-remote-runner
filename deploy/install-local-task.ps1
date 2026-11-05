@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$taskName = "InstaboxTicketRunner-$TaskId"
+$taskName = "CodexRemoteRunner-$TaskId"
 
 foreach ($path in @($BinaryPath, $ConfigPath, $TailscalePath)) {
     if (!(Test-Path -LiteralPath $path -PathType Leaf)) {

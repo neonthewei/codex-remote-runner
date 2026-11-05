@@ -17,12 +17,12 @@ jobs:
           cache: true
       - run: go test -race ./...
       - run: go vet ./...
-      - run: go build -o bin/ib-ticket .
-      - run: sh skills/instabox-ticket/scripts/run.sh --help
-      - run: ./bin/ib-ticket --version
+      - run: go build -o bin/codex-remote .
+      - run: sh skills/codex-remote/scripts/run.sh --help
+      - run: ./bin/codex-remote --version
       - name: Native macOS credential store (synthetic data only)
         if: runner.os == 'macOS'
-        run: IB_TICKET_TEST_OS_STORE=1 go test -run '^TestNativeCredentialStoreRoundTrip$' -v .
+        run: CODEX_REMOTE_TEST_OS_STORE=1 go test -run '^TestNativeCredentialStoreRoundTrip$' -v .
       - name: Native Linux credential store (isolated, synthetic data only)
         if: runner.os == 'Linux'
         run: |
@@ -31,7 +31,7 @@ jobs:
           export XDG_DATA_HOME="$(mktemp -d)"
           dbus-run-session -- sh -ec '
             printf "audit-only" | gnome-keyring-daemon --unlock --components=secrets
-            IB_TICKET_TEST_OS_STORE=1 go test -run "^TestNativeCredentialStoreRoundTrip$" -v .
+            CODEX_REMOTE_TEST_OS_STORE=1 go test -run "^TestNativeCredentialStoreRoundTrip$" -v .
           '
       - name: Dependency vulnerability scan
         run: |

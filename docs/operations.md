@@ -9,21 +9,21 @@ already execute commands on that host.
 
 Run on the bot's existing persistent host under its trusted service account.
 An SSH connection from the operator's laptop is not required. Inspect existing
-checkouts, `ib-ticket`, Instabox login, private configuration, key provisioning,
+checkouts, `codex-remote`, Instabox login, private configuration, key provisioning,
 state and service units before installing. Update an existing checkout without
 discarding local work. Record the checked-out commit; v0.1.0 is still a draft.
 
-Build using README's Go requirement and run `ib-ticket --help`. Install the
+Build using README's Go requirement and run `codex-remote --help`. Install the
 binary in `~/.local/bin`. Link the existing skill directory into the bot's
 documented skill path, preserving an existing link or installation. A bot with
 shell access can also call the binary directly; skill support is optional.
 
-Keep the configuration at `~/.config/instabox-ticket-runner/config.yaml`, mode
+Keep the configuration at `~/.config/codex-remote-runner/config.yaml`, mode
 0600, and its directory mode 0700. Fill in the operator's allowed profile,
 Instabox org, repo and plan-supported size. Use the encrypted-file backend and
 the separate private key path in the example. Preserve provisioned keys and
 existing state. Initialize a key only for a new installation. Keep
-`IB_TICKET_CONFIG` in the bot service's environment as well as interactive shells.
+`CODEX_REMOTE_CONFIG` in the bot service's environment as well as interactive shells.
 
 Check actual Instabox access on this host. If sign-in is needed, use its official
 device/agent login and relay only the intended approval URL and one-time code.
@@ -55,8 +55,8 @@ instead of an Instabox VM. The agent must already have a command-execution chann
 on that Windows account. Browser access to T3 alone is not a shell or installer.
 Run every command as the same signed-in user that owns the Codex login.
 
-Before mutation, inspect the checkout, `git status`, existing `ib-ticket.exe`,
-private YAML/state paths, scheduled tasks named `InstaboxTicketRunner-*`, T3
+Before mutation, inspect the checkout, `git status`, existing `codex-remote.exe`,
+private YAML/state paths, scheduled tasks named `CodexRemoteRunner-*`, T3
 versions, Codex executable, Tailscale status and existing Serve mappings. Preserve
 all existing installations. Do not reinstall Codex, log out an account, replace a
 config file, delete a worktree or take over a Tailscale port to make setup pass.
@@ -78,17 +78,17 @@ Pass `-Repository OWNER/REPO` only when the source checkout's `origin` is not a
 GitHub URL. Pass explicit `-T3Path`, `-CodexPath` or `-TailscalePath` when normal
 discovery does not find the intended installation. The bootstrap builds the
 controller under the user's `.local\bin`, writes new private YAML/state under
-`.codex\state\instabox-ticket-runner`, creates a task worktree under
+`.codex\state\codex-remote-runner`, creates a task worktree under
 `.codex\worktrees`, and installs the per-user scheduled service. Existing files
 are reused. It fails closed when status is not an explicit unknown task or the
 requested Tailscale HTTPS port belongs to another service.
 An existing controller binary is reused. For an intentional upgrade, stop its
 scheduled task and pass `-Rebuild`; do not attempt to replace a running Windows
 executable.
-When `-SkillRoot` is supplied, the bootstrap creates an `instabox-ticket`
+When `-SkillRoot` is supplied, the bootstrap creates an `codex-remote`
 junction to this checkout without replacing an existing installation. Use the
 calling agent's documented skill directory. Windows agents invoke
-`skills/instabox-ticket/scripts/run.ps1`; Unix agents continue to use `run.sh`.
+`skills/codex-remote/scripts/run.ps1`; Unix agents continue to use `run.sh`.
 
 The script does not automate Codex authentication. If Codex is not already
 authenticated, stop and let the operator complete the official login. It also
@@ -96,7 +96,7 @@ does not emit a pairing credential. For a new browser, write pairing information
 to a private file and have the operator open it locally:
 
 ```powershell
-ib-ticket --config C:\private\config.yaml --state C:\private\state `
+codex-remote --config C:\private\config.yaml --state C:\private\state `
   pair remote-dev --output-file C:\private\pair.json
 ```
 
@@ -130,13 +130,13 @@ After configuring the private dashboard password using README's non-overwriting
 step, install its service beside the supervisor:
 
 ```sh
-cp deploy/ib-ticket-dashboard.service "$HOME/.config/systemd/user/"
+cp deploy/codex-remote-dashboard.service "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
-systemctl --user enable --now ib-ticket-dashboard
-systemctl --user status ib-ticket-dashboard
+systemctl --user enable --now codex-remote-dashboard
+systemctl --user status codex-remote-dashboard
 ```
 
-Both supplied units expect `ib-ticket` in `~/.local/bin` and the default private
+Both supplied units expect `codex-remote` in `~/.local/bin` and the default private
 config path. The dashboard listens on `127.0.0.1:8787`; Basic authentication still
 applies behind a private proxy. Store/retrieve its password through the operator's
 password manager or existing secure channel, not ordinary bot messages.
@@ -169,12 +169,12 @@ hostnames is an alternative when managing more task slots.
 
 The controller creates a T3-template VM (paid plan), pins T3 0.1.6, installs its
 Linux guest guard, disables that VM's template T3 service, and starts the dedicated
-`ib-ticket-t3.service`. T3 binds only to guest loopback. Auth bootstrap still uses
+`codex-remote-t3.service`. T3 binds only to guest loopback. Auth bootstrap still uses
 an independent native login VM. Task snapshots must be clean of credentials.
 
 On Linux amd64, the controller executable is also the guest guard. For a Mac
 controller, cross-build with `GOOS=linux GOARCH=amd64 go build -ldflags='-s -w'
--o bin/ib-ticket-linux .` and set `guest_binary` to its absolute path. Do not use
+-o bin/codex-remote-linux .` and set `guest_binary` to its absolute path. Do not use
 an independently updated helper. T3 task guests require systemd and cgroup v2
 with `freeze` and `cgroup.kill`; missing support fails closed.
 
@@ -187,10 +187,10 @@ unfinished effects and unknown background processes prevent checkpoint.
 For a persistent task UI, provision the password using README, then install:
 
 ```sh
-cp deploy/ib-ticket-t3-ui@.service "$HOME/.config/systemd/user/"
+cp deploy/codex-remote-t3-ui@.service "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
-systemctl --user enable --now ib-ticket-t3-ui@fix-login
-systemctl --user status ib-ticket-t3-ui@fix-login
+systemctl --user enable --now codex-remote-t3-ui@fix-login
+systemctl --user status codex-remote-t3-ui@fix-login
 # Inspect tailscale serve status first, then choose an unused HTTPS port:
 tailscale serve --https=8443 --bg http://127.0.0.1:8788
 ```
@@ -250,29 +250,29 @@ remain separate from local browser/lifecycle verification.
 
 ## Configuration
 
-Select private YAML with `IB_TICKET_CONFIG` or `--config PATH`. Precedence is
-built-in defaults → YAML → `IB_TICKET_*` environment → command flags. The CLI
+Select private YAML with `CODEX_REMOTE_CONFIG` or `--config PATH`. Precedence is
+built-in defaults → YAML → `CODEX_REMOTE_*` environment → command flags. The CLI
 rejects unknown YAML fields and multiple documents. It does not load `.env` files.
 
 | YAML field | Environment variable | Purpose |
 | --- | --- | --- |
-| `host` | `IB_TICKET_HOST` | `instabox` or the experimental `local` host |
-| `user` | `IB_TICKET_USER` | Your credential profile name |
-| `org` | `IB_TICKET_ORG` | Instabox workspace ID |
-| `provider` | `IB_TICKET_PROVIDER` | `codex` or `claude` |
-| `repo` | `IB_TICKET_REPO` | GitHub `OWNER/REPO` to prepare |
-| `base` | `IB_TICKET_BASE` | Base branch, default `main` |
-| `vcpus` | `IB_TICKET_VCPUS` | Allowed VM CPU count |
-| `mem_mib` | `IB_TICKET_MEM_MIB` | Allowed VM memory in MiB |
-| `snapshot` | `IB_TICKET_SNAPSHOT` | Optional clean dependency snapshot |
-| `secrets` | `IB_TICKET_SECRETS` | Existing Instabox Secret names; comma-separated in env |
-| `credential_backend` | `IB_TICKET_CREDENTIAL_BACKEND` | `encrypted-file` or `native` |
-| `credential_key_file` | `IB_TICKET_CREDENTIAL_KEY_FILE` | Private key path, with `~/` expansion |
-| `local_repo_root` | `IB_TICKET_LOCAL_REPO_ROOT` | Absolute source repository used to create local worktrees |
-| `local_worktree_root` | `IB_TICKET_LOCAL_WORKTREE_ROOT` | Absolute parent directory for local task worktrees |
-| `local_t3_bin` | `IB_TICKET_LOCAL_T3_BIN` | T3 executable or Windows command path |
-| `local_codex_bin` | `IB_TICKET_LOCAL_CODEX_BIN` | Codex executable used by the T3 server |
-| `local_t3_port` | `IB_TICKET_LOCAL_T3_PORT` | Loopback T3 port for this local task |
+| `host` | `CODEX_REMOTE_HOST` | `instabox` or the experimental `local` host |
+| `user` | `CODEX_REMOTE_USER` | Your credential profile name |
+| `org` | `CODEX_REMOTE_ORG` | Instabox workspace ID |
+| `provider` | `CODEX_REMOTE_PROVIDER` | `codex` or `claude` |
+| `repo` | `CODEX_REMOTE_REPO` | GitHub `OWNER/REPO` to prepare |
+| `base` | `CODEX_REMOTE_BASE` | Base branch, default `main` |
+| `vcpus` | `CODEX_REMOTE_VCPUS` | Allowed VM CPU count |
+| `mem_mib` | `CODEX_REMOTE_MEM_MIB` | Allowed VM memory in MiB |
+| `snapshot` | `CODEX_REMOTE_SNAPSHOT` | Optional clean dependency snapshot |
+| `secrets` | `CODEX_REMOTE_SECRETS` | Existing Instabox Secret names; comma-separated in env |
+| `credential_backend` | `CODEX_REMOTE_CREDENTIAL_BACKEND` | `encrypted-file` or `native` |
+| `credential_key_file` | `CODEX_REMOTE_CREDENTIAL_KEY_FILE` | Private key path, with `~/` expansion |
+| `local_repo_root` | `CODEX_REMOTE_LOCAL_REPO_ROOT` | Absolute source repository used to create local worktrees |
+| `local_worktree_root` | `CODEX_REMOTE_LOCAL_WORKTREE_ROOT` | Absolute parent directory for local task worktrees |
+| `local_t3_bin` | `CODEX_REMOTE_LOCAL_T3_BIN` | T3 executable or Windows command path |
+| `local_codex_bin` | `CODEX_REMOTE_LOCAL_CODEX_BIN` | Codex executable used by the T3 server |
+| `local_t3_port` | `CODEX_REMOTE_LOCAL_T3_PORT` | Loopback T3 port for this local task |
 
 With `host: local`, `backend` must be `t3` and `provider` must be `codex`.
 `create` records bounded local paths, `prepare` fetches the configured base and
@@ -294,21 +294,21 @@ listener. It runs only after that Windows user signs in so it can reuse the same
 Codex login. The command arguments contain paths and task identity only; pairing
 tokens remain in explicitly selected private output files.
 T3 startup output is not persisted because it contains a bootstrap pairing
-credential. Task Scheduler owns `ib-ticket.exe` directly so process state and
+credential. Task Scheduler owns `codex-remote.exe` directly so process state and
 automatic restart reflect the real worker lifetime.
 On Windows, `local_t3_bin` must name the versioned `t3.exe`, not the interactive
 `t3.cmd` launcher, so the controller remains the tracked parent process.
 
-`IB_TICKET_STATE` or global `--state PATH` selects the state directory, defaulting
-to `~/.local/state/instabox-ticket-runner`. It must be private (0700). Keep the
+`CODEX_REMOTE_STATE` or global `--state PATH` selects the state directory, defaulting
+to `~/.local/state/codex-remote-runner`. It must be private (0700). Keep the
 SQLite database and namespace together. Configuration contains settings and
 Secret names, never token or encryption-key values.
 
 Task IDs accept ASCII letters, digits, hyphens and underscores, starting with a
 letter or digit. VM naming limits a task ID to 54 characters. IDs are opaque:
-`fix-login`, `GH-42` and `my_task_1` have the same behavior. Legacy `--ticket`
-remains an alias for `create --task`. Existing JSON, database columns and VM
-metadata retain the field name `ticket` for compatibility; no tracker is queried.
+`fix-login`, `GH-42` and `my_task_1` have the same behavior. Existing JSON,
+database columns and VM metadata retain the internal field name `ticket`; no
+tracker is queried.
 Issue fetching, issue updates, task-to-PR mapping and notifications belong to the
 calling agent or an optional integration.
 
@@ -370,7 +370,7 @@ and repository are pinned once prepared. Later `run` calls resume the same
 conversation with its original working directory.
 
 `run` starts a background turn and records its conversation/job ID before returning.
-Run `ib-ticket supervise` as a persistent service on the controller host to
+Run `codex-remote supervise` as a persistent service on the controller host to
 checkpoint completed host-managed turns automatically. `watch TASK_ID` waits for
 one task in the foreground instead, after `run ... --supervision external`.
 Default `run` refuses to start without a live supervisor process lock, so missing
@@ -389,7 +389,7 @@ or automatic PR publisher. The optional Linear worker supervises its own turns
 (`--supervision external`) so the generic supervisor will not race its reporting.
 
 New VMs use `auto_suspend: 5m` (paid plans), configurable through YAML or
-IB_TICKET_AUTO_SUSPEND. Free plans require `30m` plus an allowed VM size. The
+CODEX_REMOTE_AUTO_SUSPEND. Free plans require `30m` plus an allowed VM size. The
 60-minute runtime cap still applies even during active work. Existing VMs retain
 their policy; after verifying ownership, an operator can change it with
 `instabox auto-suspend VM_ID 5m` (or `30m` for free). Idle pause is a fallback,
@@ -451,7 +451,7 @@ shared base snapshots may contain only tools and public dependencies.
 
 ## Dashboard
 
-Run `ib-ticket serve --password-file /PRIVATE/dashboard-password` on the same
+Run `codex-remote serve --password-file /PRIVATE/dashboard-password` on the same
 trusted host and state directory as dispatch. The state must already exist.
 The password file must be a private regular file, at least 24 random characters,
 maximum 4096 bytes. Restart the server after rotating it. Username is `operator`.
@@ -530,7 +530,7 @@ agent.example.com {
 Start the bridge on the same controller host/config/state as the dashboard:
 
 ```sh
-ib-ticket --config /PRIVATE/config.yaml linear --settings /PRIVATE/linear.yaml
+codex-remote --config /PRIVATE/config.yaml linear --settings /PRIVATE/linear.yaml
 ```
 
 Use your service manager with restart-on-failure and private umask. A separate
@@ -566,7 +566,7 @@ use existing `reconcile`, `recover-prepare`, `recover-turn` or `activate` comman
 as appropriate. To reattach monitoring to the recovered active conversation:
 
 ```sh
-ib-ticket --config /PRIVATE/config.yaml linear --settings /PRIVATE/linear.yaml \
+codex-remote --config /PRIVATE/config.yaml linear --settings /PRIVATE/linear.yaml \
   --resolve 'prompt:LINEAR_ACTIVITY_UUID'
 ```
 

@@ -7,8 +7,8 @@ backend: t3
 # Unique private HTTPS origin for this task UI service. Set before dispatch.
 # t3_public_url: https://your-bot.your-tailnet.ts.net:8443
 # On Linux amd64 the installed controller is also the guest helper. On a Mac:
-# GOOS=linux GOARCH=amd64 go build -o bin/ib-ticket-linux .
-# guest_binary: /absolute/path/to/bin/ib-ticket-linux
+# GOOS=linux GOARCH=amd64 go build -o bin/codex-remote-linux .
+# guest_binary: /absolute/path/to/bin/codex-remote-linux
 repo: owner/repo
 base: main
 vcpus: 2
@@ -23,6 +23,6 @@ secrets: []
 
 # Headless bot host. init-key generates a new private key once; do not replace it.
 credential_backend: encrypted-file
-credential_key_file: "~/.config/instabox-ticket-runner-keys/master.key"
+credential_key_file: "~/.config/codex-remote-runner-keys/master.key"
 # For desktop storage, set credential_backend: native and remove credential_key_file.
 # Configuration and recovery: docs/operations.md

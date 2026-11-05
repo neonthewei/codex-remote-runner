@@ -76,7 +76,7 @@ test -e ` + t3Home + `/userdata/server-runtime.json
 func (i Instabox) InstallT3Guest(box, path string) error {
 	if path == "" {
 		if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
-			return errors.New("set guest_binary to a Linux amd64 build of ib-ticket (GOOS=linux GOARCH=amd64 go build)")
+			return errors.New("set guest_binary to a Linux amd64 build of codex-remote (GOOS=linux GOARCH=amd64 go build)")
 		}
 		var e error
 		path, e = os.Executable()

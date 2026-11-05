@@ -168,8 +168,8 @@ func TestInitKeyNeverOverwritesOrPrintsKey(t *testing.T) {
 		t.Fatal("master key changed")
 	}
 	newKey := filepath.Join(t.TempDir(), "private", "master.key")
-	t.Setenv("IB_TICKET_CONFIG", "")
-	t.Setenv("IB_TICKET_STATE", "/nonexistent/no-state-should-be-opened")
+	t.Setenv("CODEX_REMOTE_CONFIG", "")
+	t.Setenv("CODEX_REMOTE_STATE", "/nonexistent/no-state-should-be-opened")
 	result, e := execute([]string{"init-key", "--credential-backend", "encrypted-file", "--credential-key-file", newKey})
 	if e != nil || result.(map[string]string)["status"] != "key-created" {
 		t.Fatal("key initialization failed", e)

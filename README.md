@@ -1,34 +1,35 @@
-# Instabox Task Runner
+# Codex Remote Runner
 
-Run coding tasks in isolated Instabox VMs or in guarded worktrees on one trusted
-local host. Send a task from another device and continue in the same working
-branch and Codex conversation.
+Run Codex on a trusted Windows development computer from another agent or device.
+Each task gets a guarded Git worktree, a persistent T3 conversation and an
+optional private Tailscale URL. An optional Instabox backend remains available
+for isolated cloud VMs.
 
 ```text
-Phone / T3 Code ← private HTTPS → Go controller ← SSH → Instabox task VM
-                          ↑                              T3 + Codex
-                       your bot
+Mac, phone or bot → private T3 URL → Windows controller → Git worktree
+                                                  └── T3 → Codex
 ```
 
 Use any issue tracker or a plain prompt. A task ID is just your chosen identifier,
 such as `fix-login` or `GH-42`. No issue-tracker account, API key or integration is
 required. PR creation and issue updates are handled by your agent, not this CLI.
 
-**Experimental.** Automated controller, credential-store and build checks pass on
-macOS and Linux. The complete phone-to-bot-to-PR workflow, real host recovery and
-long-term token refresh still need live verification. v0.1.0 is an unpublished draft.
+**Experimental.** The local Windows controller, service lifecycle, private URL,
+Codex conversation and app/T3 handoff have live proof. Cross-host bot bridges,
+long-term recovery and the complete phone-to-PR workflow need more verification.
 
 ## Install on your bot's host
 
-Requires Go 1.26.10+ and an installed, authenticated [Instabox CLI](https://instabox.sh).
-The controller and skill need no Python runtime.
+Requires Go 1.26.10+. Local Windows mode also requires Git, T3 Code, an
+authenticated Codex installation and Tailscale. Instabox CLI is required only
+for the optional VM backend. The controller and skill need no Python runtime.
 
 ```sh
-git clone https://github.com/kevinsslin/instabox-ticket-runner.git
-cd instabox-ticket-runner
-go build -o bin/ib-ticket .
+git clone https://github.com/neonthewei/codex-remote-runner.git
+cd codex-remote-runner
+go build -o bin/codex-remote .
 export PATH="$PWD/bin:$PATH"
-ib-ticket --help
+codex-remote --help
 ```
 
 ## Local Windows host preview
@@ -44,22 +45,22 @@ Mac, phone or bot → private T3 URL → Windows controller → local worktree
 ```
 
 ```powershell
-ib-ticket create --task fix-login
-ib-ticket prepare fix-login
+codex-remote create --task fix-login
+codex-remote prepare fix-login
 
 # Keep this foreground command under a trusted Windows service manager.
-ib-ticket serve-local fix-login
+codex-remote serve-local fix-login
 
 # Run from another terminal or bot process.
-ib-ticket run fix-login --model gpt-6.1-sol --prompt-file C:\private\task.txt
-ib-ticket status fix-login
+codex-remote run fix-login --model gpt-6.1-sol --prompt-file C:\private\task.txt
+codex-remote status fix-login
 ```
 
 The underlying Codex conversation appears in Codex App when T3 and the app use
 the same Codex home. Codex permits one writer at a time. To take over locally,
-stop `serve-local`, then run `ib-ticket handoff fix-login --to app`. To return
+stop `serve-local`, then run `codex-remote handoff fix-login --to app`. To return
 control, release the conversation in Codex App, start `serve-local`, then run
-`ib-ticket handoff fix-login --to t3`. The controller refuses T3 dispatch while
+`codex-remote handoff fix-login --to t3`. The controller refuses T3 dispatch while
 the recorded owner is the app. App-created turns are not imported into T3's own
 message database, so inspect both histories after a handoff.
 
@@ -73,7 +74,7 @@ and expose only that listener to the private tailnet:
 
 ```powershell
 pwsh -File deploy/install-local-task.ps1 `
-  -BinaryPath C:\private\ib-ticket.exe `
+  -BinaryPath C:\private\codex-remote.exe `
   -ConfigPath C:\private\config.yaml `
   -StatePath C:\private\state `
   -TaskId fix-login `
@@ -87,7 +88,7 @@ controller state, worktrees, and T3 history when removed. Use
 task data. It intentionally preserves the Tailscale listener
 because other local services may share that node configuration. Pairing
 credentials must still be written with `pair --output-file` and opened privately.
-The scheduler launches `ib-ticket.exe` directly and does not persist T3 startup
+The scheduler launches `codex-remote.exe` directly and does not persist T3 startup
 output because that output contains a bootstrap pairing credential.
 Configure `local_t3_bin` with T3's real versioned `t3.exe` for the scheduled
 service; the interactive `t3.cmd` launcher can detach its child without a console.
@@ -123,11 +124,11 @@ skill. Grok commonly uses `$HOME\.grok\skills`; Codex commonly uses
 ## Configure and log in
 
 ```sh
-mkdir -p "$HOME/.config/instabox-ticket-runner"
-chmod 700 "$HOME/.config/instabox-ticket-runner"
-export IB_TICKET_CONFIG="$HOME/.config/instabox-ticket-runner/config.yaml"
-test -e "$IB_TICKET_CONFIG" || cp config.example.yaml "$IB_TICKET_CONFIG"
-chmod 600 "$IB_TICKET_CONFIG"
+mkdir -p "$HOME/.config/codex-remote-runner"
+chmod 700 "$HOME/.config/codex-remote-runner"
+export CODEX_REMOTE_CONFIG="$HOME/.config/codex-remote-runner/config.yaml"
+test -e "$CODEX_REMOTE_CONFIG" || cp config.example.yaml "$CODEX_REMOTE_CONFIG"
+chmod 600 "$CODEX_REMOTE_CONFIG"
 ```
 
 Edit the YAML with your profile, Instabox workspace and repository. The example
@@ -135,10 +136,10 @@ uses encrypted storage for a headless host; its key stays outside the checkout.
 Keep this configuration in your bot's service environment for every command.
 
 ```sh
-ib-ticket init-key
-ib-ticket bootstrap
+codex-remote init-key
+codex-remote bootstrap
 instabox ssh VM_ID -- 'codex login --device-auth'
-ib-ticket checkpoint AUTH-YOUR_PROFILE
+codex-remote checkpoint AUTH-YOUR_PROFILE
 ```
 
 Bootstrap returns the login VM ID and auth task ID. Complete the official login
@@ -149,20 +150,20 @@ stores, private repositories, configuration and recovery.
 
 ## Run a task with T3 Code
 
-Start `ib-ticket supervise` as a persistent host service using the commands below
+Start `codex-remote supervise` as a persistent host service using the commands below
 before dispatch. Write the request and acceptance criteria into a private text
 file on the host.
 
 ```sh
-ib-ticket create --task fix-login
-ib-ticket prepare fix-login
-ib-ticket run fix-login --model gpt-6.1-sol --prompt-file /private/task.txt
-ib-ticket status fix-login
+codex-remote create --task fix-login
+codex-remote prepare fix-login
+codex-remote run fix-login --model gpt-6.1-sol --prompt-file /private/task.txt
+codex-remote status fix-login
 
 # With the host supervisor installed, checkpoint runs automatically.
 # Inspect one recorded turn (when no supervisor daemon is running):
 # Start it with run ... --supervision external, then use:
-# ib-ticket watch fix-login
+# codex-remote watch fix-login
 ```
 
 With `backend: t3`, `run` returns the original T3 thread/run IDs and a task URL
@@ -174,7 +175,7 @@ approvals, and send follow-up prompts to that same thread. No UI fork is bundled
 Start the gateway after creating the task:
 
 ```sh
-ib-ticket ui fix-login --password-file "$HOME/.config/instabox-ticket-runner/dashboard-password"
+codex-remote ui fix-login --password-file "$HOME/.config/codex-remote-runner/dashboard-password"
 # Inspect existing Serve mappings first; choose an unused HTTPS port.
 tailscale serve --https=8443 --bg http://127.0.0.1:8788
 ```
@@ -196,7 +197,7 @@ Instabox agent conversations and the optional read-only dashboard below. Native
 Claude remains available; this T3 adapter currently supports Codex only. Existing
 native tasks keep their backend and cannot be converted in place.
 
-Start `ib-ticket supervise` as a persistent host service before dispatching.
+Start `codex-remote supervise` as a persistent host service before dispatching.
 It records and watches exact turn/job IDs, then checkpoints automatically after
 completion. `run` requires a running supervisor by default and returns immediately; it does
 not launch a hidden daemon.
@@ -208,11 +209,11 @@ On Linux with systemd user services:
 
 ```sh
 mkdir -p "$HOME/.local/bin" "$HOME/.config/systemd/user"
-install -m 755 bin/ib-ticket "$HOME/.local/bin/ib-ticket"
-cp deploy/ib-ticket-supervise.service "$HOME/.config/systemd/user/"
+install -m 755 bin/codex-remote "$HOME/.local/bin/codex-remote"
+cp deploy/codex-remote-supervise.service "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
-systemctl --user enable --now ib-ticket-supervise
-systemctl --user status ib-ticket-supervise
+systemctl --user enable --now codex-remote-supervise
+systemctl --user status codex-remote-supervise
 ```
 
 The template expects the private config at the quickstart path above. Use your
@@ -241,10 +242,10 @@ read only. There is no frontend build or separate database service.
 Generate a separate dashboard password on the bot host, outside the checkout:
 
 ```sh
-if ! test -e "$HOME/.config/instabox-ticket-runner/dashboard-password"; then
-  (umask 077; set -C; openssl rand -hex 24 > "$HOME/.config/instabox-ticket-runner/dashboard-password")
+if ! test -e "$HOME/.config/codex-remote-runner/dashboard-password"; then
+  (umask 077; set -C; openssl rand -hex 24 > "$HOME/.config/codex-remote-runner/dashboard-password")
 fi
-ib-ticket serve --password-file "$HOME/.config/instabox-ticket-runner/dashboard-password"
+codex-remote serve --password-file "$HOME/.config/codex-remote-runner/dashboard-password"
 ```
 
 Open `http://127.0.0.1:8787` on the host, or put this loopback listener behind your
@@ -255,7 +256,7 @@ Give the bot your dashboard's HTTPS base URL and have it return
 are sent to the browser. See [dashboard operations](docs/operations.md#dashboard).
 
 ```sh
-ib-ticket link-pr fix-login --url https://github.com/YOUR_ORG/YOUR_REPO/pull/123
+codex-remote link-pr fix-login --url https://github.com/YOUR_ORG/YOUR_REPO/pull/123
 ```
 
 The bot records a PR only after verifying it exists and belongs to the task.
@@ -289,7 +290,7 @@ See [T3 operations](docs/operations.md#t3-code) for setup, recovery and constrai
 
 ## Optional Linear agent
 
-Run `ib-ticket linear --settings /PRIVATE/linear.yaml` on your controller host.
+Run `codex-remote linear --settings /PRIVATE/linear.yaml` on your controller host.
 Use [linear.example.yaml](linear.example.yaml) with your own workspace, agent,
 team/user allowlists and secret-file paths. Each installation uses the fixed
 repository/profile in your normal private config. No company settings are bundled.
@@ -313,7 +314,7 @@ For a bot that should operate this Windows computer directly without Instabox,
 give it the repository URL plus this instruction:
 
 > Install this repository on my trusted Windows Codex host. Read README.md,
-> skills/instabox-ticket/SKILL.md and the Windows local bot self-install section
+> skills/codex-remote/SKILL.md and the Windows local bot self-install section
 > in docs/operations.md. Do not install or create an Instabox VM. Preserve all
 > existing config, state, worktrees, services and Tailscale listeners. Run
 > deploy/bootstrap-local-windows.ps1 with the repository path and task ID I give
@@ -330,7 +331,7 @@ host tool, restricted SSH or an allowlisted MCP wrapper around this CLI.
 For an Instabox-backed host, use the original instruction below.
 
 > Install this repository on your own persistent host. Read README.md and
-> skills/instabox-ticket/SKILL.md, then follow the bot self-install procedure in
+> skills/codex-remote/SKILL.md, then follow the bot self-install procedure in
 > docs/operations.md. Preserve existing config, keys and state. Use private YAML
 > and encrypted-file storage. Guide me through official login without requesting
 > tokens in chat. Use backend: t3 for new Codex tasks. Run the supervisor and
@@ -341,12 +342,12 @@ For an Instabox-backed host, use the original instruction below.
 > publish only within the task's scope. Preserve existing native tasks and leases.
 > Do not convert them in place. Report missing capabilities or repository access.
 
-Link [the skill directory](skills/instabox-ticket) into your agent's supported
+Link [the skill directory](skills/codex-remote) into your agent's supported
 skill discovery path after building the binary. For Grok installations using
 `~/.grok/skills/`, link it there without replacing an existing installation.
 The skill also works with other agents that can execute host commands.
 
 [Operations](docs/operations.md) · [Security](SECURITY.md) ·
-[CI](https://github.com/kevinsslin/instabox-ticket-runner/actions/workflows/test.yml)
+[CI](https://github.com/neonthewei/codex-remote-runner/actions/workflows/test.yml)
 
 MIT licensed. Community project, unaffiliated with Instabox or model providers.

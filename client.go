@@ -130,7 +130,7 @@ func (i Instabox) copy(source, target string) error {
 	return nil
 }
 func (i Instabox) Credentials(box string, value []byte) ([]byte, error) {
-	dir, e := os.MkdirTemp("", "ib-ticket-auth-")
+	dir, e := os.MkdirTemp("", "codex-remote-auth-")
 	if e != nil {
 		return nil, e
 	}

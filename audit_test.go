@@ -17,8 +17,8 @@ func TestAuthRejectsMixedAccountAndAPIKey(t *testing.T) {
 }
 
 func TestVersionDoesNotOpenConfigurationOrState(t *testing.T) {
-	t.Setenv("IB_TICKET_CONFIG", "/nonexistent/config.yaml")
-	t.Setenv("IB_TICKET_STATE", "/nonexistent/state")
+	t.Setenv("CODEX_REMOTE_CONFIG", "/nonexistent/config.yaml")
+	t.Setenv("CODEX_REMOTE_STATE", "/nonexistent/state")
 	v, e := execute([]string{"--version"})
 	if e != nil || v.(map[string]string)["version"] != Version {
 		t.Fatal(v, e)
@@ -197,10 +197,10 @@ func TestNativePromptTransportAndShellResponse(t *testing.T) {
 // Opt in on a desktop or isolated Linux session with an unlocked native store.
 // Only this test's synthetic entry is created and removed. No real auth is read.
 func TestNativeCredentialStoreRoundTrip(t *testing.T) {
-	if os.Getenv("IB_TICKET_TEST_OS_STORE") != "1" {
-		t.Skip("set IB_TICKET_TEST_OS_STORE=1 to test the native credential store")
+	if os.Getenv("CODEX_REMOTE_TEST_OS_STORE") != "1" {
+		t.Skip("set CODEX_REMOTE_TEST_OS_STORE=1 to test the native credential store")
 	}
-	s := &OSSecrets{service: "instabox-ticket-audit/" + randomID()}
+	s := &OSSecrets{service: "codex-remote-audit/" + randomID()}
 	version := randomID()
 	if e := s.Put("audit", version, fakeAuth); e != nil {
 		t.Fatal(e)
@@ -214,7 +214,7 @@ func TestNativeCredentialStoreRoundTrip(t *testing.T) {
 	if e != nil || !bytes.Equal(got, fakeAuth) {
 		t.Fatal("native store round-trip failed (no credential data logged)")
 	}
-	other := &OSSecrets{service: "instabox-ticket-audit/" + randomID()}
+	other := &OSSecrets{service: "codex-remote-audit/" + randomID()}
 	if _, e := other.Get("audit", version); e == nil {
 		t.Fatal("separate controller namespaces share a credential item")
 	}

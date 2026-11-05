@@ -54,7 +54,7 @@ function Invoke-Controller {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
     & $BinaryPath --config $ConfigPath --state $StatePath @Arguments
     if ($LASTEXITCODE -ne 0) {
-        throw "ib-ticket failed: $($Arguments -join ' ')"
+        throw "codex-remote failed: $($Arguments -join ' ')"
     }
 }
 
@@ -92,11 +92,11 @@ if (!$Repository) {
     $Repository = $Matches[1]
 }
 
-$privateRoot = Join-Path $env:USERPROFILE '.codex\state\instabox-ticket-runner'
+$privateRoot = Join-Path $env:USERPROFILE '.codex\state\codex-remote-runner'
 if (!$ConfigPath) { $ConfigPath = Join-Path $privateRoot "$TaskId.yaml" }
 if (!$StatePath) { $StatePath = Join-Path $privateRoot $TaskId }
 if (!$WorktreeRoot) { $WorktreeRoot = Join-Path $env:USERPROFILE ".codex\worktrees\remote-$TaskId" }
-if (!$BinaryPath) { $BinaryPath = Join-Path $env:USERPROFILE '.local\bin\ib-ticket.exe' }
+if (!$BinaryPath) { $BinaryPath = Join-Path $env:USERPROFILE '.local\bin\codex-remote.exe' }
 
 $ConfigPath = [System.IO.Path]::GetFullPath($ConfigPath)
 $StatePath = [System.IO.Path]::GetFullPath($StatePath)
@@ -198,8 +198,8 @@ $skillPath = $null
 if ($SkillRoot) {
     $SkillRoot = [System.IO.Path]::GetFullPath($SkillRoot)
     New-Item -ItemType Directory -Force -Path $SkillRoot | Out-Null
-    $skillPath = Join-Path $SkillRoot 'instabox-ticket'
-    $skillSource = Join-Path $checkoutRoot 'skills\instabox-ticket'
+    $skillPath = Join-Path $SkillRoot 'codex-remote'
+    $skillSource = Join-Path $checkoutRoot 'skills\codex-remote'
     if (Test-Path -LiteralPath $skillPath) {
         $existingSkill = Get-Item -LiteralPath $skillPath -Force
         $target = @($existingSkill.Target) | Select-Object -First 1

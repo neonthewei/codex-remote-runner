@@ -1,4 +1,4 @@
-module github.com/kevinsslin/instabox-ticket-runner
+module github.com/neonthewei/codex-remote-runner
 
 go 1.26.10
 

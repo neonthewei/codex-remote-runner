@@ -25,11 +25,11 @@ import (
 )
 
 const t3Version = "0.1.6"
-const t3Home = "/data/home/.ib-ticket-t3"
+const t3Home = "/data/home/.codex-remote-t3"
 const t3DB = t3Home + "/userdata/statev2.sqlite"
-const t3Service = "ib-ticket-t3.service"
+const t3Service = "codex-remote-t3.service"
 const t3Cgroup = "/sys/fs/cgroup/system.slice/" + t3Service
-const t3Helper = "/data/home/.local/bin/ib-ticket-guest"
+const t3Helper = "/data/home/.local/bin/codex-remote-guest"
 const t3Bin = "/data/home/.t3/runtime/versions/" + t3Version + "/t3"
 const t3CLI = "T3CODE_HOME=" + t3Home + " " + t3Bin
 

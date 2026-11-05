@@ -434,7 +434,7 @@ func TestConfigRejectsUnknownFieldsAndMultipleDocuments(t *testing.T) {
 func TestConfigEnvironmentOverrideAndDefaults(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.yaml")
 	os.WriteFile(p, []byte("user: example\norg: org-test\nrepo: owner/repo\nvcpus: 4\n"), 0600)
-	env := map[string]string{"IB_TICKET_USER": "different", "IB_TICKET_SECRETS": "GH_TOKEN, TEST_KEY"}
+	env := map[string]string{"CODEX_REMOTE_USER": "different", "CODEX_REMOTE_SECRETS": "GH_TOKEN, TEST_KEY"}
 	c, e := loadConfig(p, func(k string) (string, bool) { v, ok := env[k]; return v, ok })
 	if e != nil {
 		t.Fatal(e)
@@ -450,12 +450,12 @@ func TestCommandReorderingKeepsTicketAfterFlags(t *testing.T) {
 	}
 }
 
-func TestCreateTaskFlagAndLegacyAliasWithoutTracker(t *testing.T) {
-	for _, tc := range []struct{ flag, id string }{{"--task", "fix-login"}, {"--task", "my_task_1"}, {"--ticket", "GH-42"}} {
-		t.Run(tc.flag+tc.id, func(t *testing.T) {
-			t.Setenv("IB_TICKET_CONFIG", "")
-			t.Setenv("IB_TICKET_CREDENTIAL_BACKEND", "native")
-			t.Setenv("IB_TICKET_CREDENTIAL_KEY_FILE", "")
+func TestCreateTaskFlagWithoutTracker(t *testing.T) {
+	for _, id := range []string{"fix-login", "my_task_1", "GH-42"} {
+		t.Run(id, func(t *testing.T) {
+			t.Setenv("CODEX_REMOTE_CONFIG", "")
+			t.Setenv("CODEX_REMOTE_CREDENTIAL_BACKEND", "native")
+			t.Setenv("CODEX_REMOTE_CREDENTIAL_KEY_FILE", "")
 			fakeInstabox(t, `case "$1" in
 create)
   task= namespace=
@@ -472,54 +472,40 @@ suspend) printf '{}' ;;
 esac
 `)
 			root := filepath.Join(t.TempDir(), "state")
-			args := []string{"--state", root, "create", tc.flag, tc.id, "--user", "owner", "--org", "org-test", "--provider", "claude"}
+			args := []string{"--state", root, "create", "--task", id, "--user", "owner", "--org", "org-test", "--provider", "claude"}
 			v, e := execute(args)
-			if e != nil || v.(Task).Ticket != tc.id {
-				t.Fatal("opaque task ID or legacy alias failed", e)
+			if e != nil || v.(Task).Ticket != id {
+				t.Fatal("opaque task ID failed", e)
 			}
 			s, e := openState(root)
 			if e != nil {
 				t.Fatal(e)
 			}
 			defer s.Close()
-			stored, e := s.Task(tc.id)
-			if e != nil || stored.Phase != "paused" || stored.Ticket != tc.id {
+			stored, e := s.Task(id)
+			if e != nil || stored.Phase != "paused" || stored.Ticket != id {
 				t.Fatal("task ID was not preserved", e)
 			}
 		})
 	}
 }
 
-func TestConflictingTaskAliasesFailBeforeStateCreation(t *testing.T) {
-	t.Setenv("IB_TICKET_CONFIG", "")
-	t.Setenv("IB_TICKET_CREDENTIAL_BACKEND", "native")
-	t.Setenv("IB_TICKET_CREDENTIAL_KEY_FILE", "")
-	root := filepath.Join(t.TempDir(), "unused-state")
-	_, e := execute([]string{"--state", root, "create", "--task", "fix-login", "--ticket", "other-task"})
-	if e == nil || !strings.Contains(e.Error(), "same task") {
-		t.Fatal("conflicting IDs accepted")
-	}
-	if _, e := os.Stat(root); !os.IsNotExist(e) {
-		t.Fatal("state opened before rejecting conflicting IDs")
-	}
-}
-
 func TestSkillWrapperResolvesSymlinkedDirectory(t *testing.T) {
 	root := t.TempDir()
 	checkout := filepath.Join(root, "checkout")
-	skill := filepath.Join(checkout, "skills", "instabox-ticket")
+	skill := filepath.Join(checkout, "skills", "codex-remote")
 	if e := os.MkdirAll(filepath.Join(skill, "scripts"), 0700); e != nil {
 		t.Fatal(e)
 	}
 	if e := os.MkdirAll(filepath.Join(checkout, "bin"), 0700); e != nil {
 		t.Fatal(e)
 	}
-	raw, e := os.ReadFile("skills/instabox-ticket/scripts/run.sh")
+	raw, e := os.ReadFile("skills/codex-remote/scripts/run.sh")
 	if e != nil {
 		t.Fatal(e)
 	}
 	os.WriteFile(filepath.Join(skill, "scripts", "run.sh"), raw, 0600)
-	os.WriteFile(filepath.Join(checkout, "bin", "ib-ticket"), []byte("#!/bin/sh\nprintf 'wrapper-ok:%s' \"$1\"\n"), 0700)
+	os.WriteFile(filepath.Join(checkout, "bin", "codex-remote"), []byte("#!/bin/sh\nprintf 'wrapper-ok:%s' \"$1\"\n"), 0700)
 	link := filepath.Join(root, "agent-skill")
 	if e = os.Symlink(skill, link); e != nil {
 		t.Fatal(e)

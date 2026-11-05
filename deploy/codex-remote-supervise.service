@@ -1,11 +1,11 @@
 [Unit]
-Description=Private Instabox task dashboard
+Description=Checkpoint completed Instabox coding turns
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.local/bin/ib-ticket --config %h/.config/instabox-ticket-runner/config.yaml serve --password-file %h/.config/instabox-ticket-runner/dashboard-password
+ExecStart=%h/.local/bin/codex-remote --config %h/.config/codex-remote-runner/config.yaml supervise
 Restart=on-failure
 RestartSec=5
 UMask=0077

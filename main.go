@@ -14,7 +14,7 @@ import (
 const Version = "0.1.0"
 
 func help() {
-	fmt.Println(`ib-ticket [--config PATH] [--state PATH] COMMAND
+	fmt.Println(`codex-remote [--config PATH] [--state PATH] COMMAND
 
 Commands:
   supervise                       Checkpoint completed host-managed turns
@@ -39,8 +39,8 @@ Commands:
   recover-prepare ID              Verify a partially prepared checkout
   recover-turn ID --conversation ID
 
-Configuration: --config YAML, then IB_TICKET_* environment, then command flags.
-Task IDs work without an issue tracker. --ticket remains an alias for create --task.
+Configuration: --config YAML, then CODEX_REMOTE_* environment, then command flags.
+Task IDs work without an issue tracker.
 No token values belong in YAML, environment overrides or task prompts.`)
 }
 
@@ -90,9 +90,9 @@ func execute(args []string) (any, error) {
 		return nil, nil
 	}
 	home, _ := os.UserHomeDir()
-	root := filepath.Join(home, ".local", "state", "instabox-ticket-runner")
-	configPath := os.Getenv("IB_TICKET_CONFIG")
-	if v := os.Getenv("IB_TICKET_STATE"); v != "" {
+	root := filepath.Join(home, ".local", "state", "codex-remote-runner")
+	configPath := os.Getenv("CODEX_REMOTE_CONFIG")
+	if v := os.Getenv("CODEX_REMOTE_STATE"); v != "" {
 		root = v
 	}
 	for len(args) > 0 && strings.HasPrefix(args[0], "--") {
@@ -147,7 +147,6 @@ func execute(args []string) (any, error) {
 	snapshot := f.String("snapshot", c.Snapshot, "")
 	cpu := f.Int("vcpus", c.VCPUs, "")
 	memory := f.Int("mem-mib", c.Memory, "")
-	ticketFlag := f.String("ticket", "", "")
 	taskFlag := f.String("task", "", "")
 	prompt := f.String("prompt-file", "", "")
 	cwd := f.String("cwd", "/data/home", "")
@@ -183,12 +182,6 @@ func execute(args []string) (any, error) {
 	c.CredentialKeyFile = *keyFile
 	if e = c.Validate(); e != nil {
 		return nil, e
-	}
-	if action == "create" && *taskFlag != "" {
-		if *ticketFlag != "" && *ticketFlag != *taskFlag {
-			return nil, errors.New("--task and legacy --ticket must identify the same task")
-		}
-		*ticketFlag = *taskFlag
 	}
 	if action == "init-key" {
 		if len(f.Args()) != 0 || c.CredentialBackend != "encrypted-file" {
@@ -232,7 +225,7 @@ func execute(args []string) (any, error) {
 		return nil, e
 	}
 	defer s.Close()
-	var secrets Secrets = &OSSecrets{service: "instabox-ticket/" + s.Namespace}
+	var secrets Secrets = &OSSecrets{service: "codex-remote/" + s.Namespace}
 	if c.CredentialBackend == "encrypted-file" {
 		secrets = &EncryptedSecrets{KeyFile: expandHome(c.CredentialKeyFile), Dir: filepath.Join(s.Root, "credentials"), Namespace: s.Namespace}
 	}
@@ -257,7 +250,7 @@ func execute(args []string) (any, error) {
 		}
 		return viewTask(t), nil
 	case "create":
-		return r.Create(*ticketFlag, c, false)
+		return r.Create(*taskFlag, c, false)
 	case "bootstrap":
 		return r.Bootstrap(c)
 	case "status":
@@ -282,7 +275,7 @@ func execute(args []string) (any, error) {
 			return nil, taskErr
 		}
 		if task.Host != "local" && *supervision == "host" && !supervisorPresent(s.Root) {
-			return nil, errors.New("start ib-ticket supervise as a persistent host service before run, or explicitly use --supervision external with your own watcher")
+			return nil, errors.New("start codex-remote supervise as a persistent host service before run, or explicitly use --supervision external with your own watcher")
 		}
 		if *prompt == "" {
 			return nil, errors.New("provide a private task-text file using --prompt-file")

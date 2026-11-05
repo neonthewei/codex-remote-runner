@@ -1,13 +1,13 @@
 ---
-name: instabox-ticket
+name: codex-remote
 description: Run or resume guarded Codex coding tasks in Instabox VMs or Windows worktrees with the Go controller and private YAML. Works with any task source, including plain prompts, with an optional Linear Agent Sessions bridge. PR publication remains agent-owned.
 ---
 
-# Instabox tasks
+# Codex Remote tasks
 
 Read the repository README for setup and docs/operations.md for configuration and
 recovery. On Unix use `sh scripts/run.sh` from this skill directory instead of
-`ib-ticket` below. On Windows use `pwsh -File scripts/run.ps1`. The wrappers
+`codex-remote` below. On Windows use `pwsh -File scripts/run.ps1`. The wrappers
 resolve the trusted checkout or installed controller. Build or install the binary
 before using them.
 
@@ -30,7 +30,7 @@ before `handoff --to app`. Restart it and verify the endpoint before
 through a private output file and do not expose its contents in model context.
 
 Execute on the bot's persistent host for phone-driven work. Use the operator's
-private YAML through IB_TICKET_CONFIG for every command. Headless hosts select
+private YAML through CODEX_REMOTE_CONFIG for every command. Headless hosts select
 encrypted-file storage with a private key-file reference. Inspect existing key
 provisioning before init-key. Never read key bytes into model context.
 
@@ -50,7 +50,7 @@ read-only dashboard is optional for existing native tasks.
 3. Write a private prompt with acceptance checks. Start `run TASK_ID --cwd DIR
    --prompt-file PATH` (add `--model` on the first T3 run). Resumed conversations
    retain their original cwd.
-4. Verify `ib-ticket supervise` is running under the host service manager before
+4. Verify `codex-remote supervise` is running under the host service manager before
    dispatch. It records exact turn/job IDs and checkpoints completed work. For a
    one-off foreground wait explicitly use `run ... --supervision external`, then
    `watch TASK_ID`. Linear's optional worker monitors
