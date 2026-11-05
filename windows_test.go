@@ -128,7 +128,8 @@ func TestWindowsSSHCommandUsesForcedWorkerRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cmd.Args) != 13 || cmd.Args[len(cmd.Args)-1] != c.WindowsSSHTarget || !strings.Contains(strings.Join(cmd.Args, " "), "StrictHostKeyChecking=yes") {
+	joined := strings.Join(cmd.Args, " ")
+	if len(cmd.Args) != 21 || cmd.Args[len(cmd.Args)-1] != c.WindowsSSHTarget || !strings.Contains(joined, "StrictHostKeyChecking=yes") || !strings.Contains(joined, "ConnectTimeout=15") || !strings.Contains(joined, "ServerAliveCountMax=1") {
 		t.Fatal(cmd.Args)
 	}
 	stdin, err := cmd.StdinPipe()

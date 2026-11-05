@@ -68,6 +68,10 @@ func (w *windowsHost) command(ctx context.Context, request windowsWorkerRequest)
 		"-o", "PermitLocalCommand=no",
 		"-o", "ControlPath=none",
 		"-o", "StrictHostKeyChecking=yes",
+		"-o", "ConnectTimeout=15",
+		"-o", "ConnectionAttempts=1",
+		"-o", "ServerAliveInterval=15",
+		"-o", "ServerAliveCountMax=1",
 		w.config.WindowsSSHTarget,
 	)
 	cmd.Stdin = bytes.NewReader(raw)
