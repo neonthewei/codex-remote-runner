@@ -139,6 +139,16 @@ if (!(Test-Path -LiteralPath $sshdConfig)) {
 }
 & $sshKeygen -A
 if ($LASTEXITCODE -ne 0) { throw 'OpenSSH host-key initialization failed' }
+$systemSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+$administratorsSid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+foreach ($hostKey in Get-ChildItem -LiteralPath $sshdDirectory -Filter 'ssh_host_*_key' -File) {
+    $hostKeyAcl = [System.Security.AccessControl.FileSecurity]::new()
+    $hostKeyAcl.SetAccessRuleProtection($true, $false)
+    $hostKeyAcl.SetOwner($systemSid)
+    $hostKeyAcl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($systemSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow))
+    $hostKeyAcl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($administratorsSid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow))
+    Set-Acl -LiteralPath $hostKey.FullName -AclObject $hostKeyAcl
+}
 $backup = "$sshdConfig.codex-remote.bak"
 if (!(Test-Path -LiteralPath $backup)) {
     Copy-Item -LiteralPath $sshdConfig -Destination $backup
