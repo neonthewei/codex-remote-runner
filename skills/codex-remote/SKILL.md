@@ -1,6 +1,6 @@
 ---
 name: codex-remote
-description: Run or resume guarded Codex coding tasks in Instabox VMs or Windows worktrees with the Go controller and private YAML. Works with any task source, including plain prompts, with an optional Linear Agent Sessions bridge. PR publication remains agent-owned.
+description: Control guarded Codex tasks from an agent computer, using SSH over Tailscale for Windows worktrees or Instabox for cloud VMs. Works with plain prompts and optional Linear Agent Sessions. PR publication remains agent-owned.
 ---
 
 # Codex Remote tasks
@@ -14,6 +14,21 @@ before using them.
 For installation on a bot's own host, follow the bot self-install procedure in
 docs/operations.md. Reuse existing config, credential keys, state and skill links.
 Verify a real task and revision after service setup, not just a successful build.
+
+For `host: windows`, the controller runs on this agent computer. Read the remote
+Windows host procedure before acting. Generate a dedicated Ed25519 key and return
+only its public half to the operator. Do not install this agent on Windows. After
+the operator provisions the worker, require an SSH config alias with a verified
+host key and use `config.windows.example.yaml`. Never disable host-key checking,
+put key material in YAML or use the T3 browser as the agent command channel.
+Verify the forced worker with `check-host`; the dedicated key intentionally cannot
+run arbitrary commands such as `hostname`.
+
+Run `create`, `prepare`, `run`, `status` and recovery commands locally through
+this skill wrapper. Keep `serve-task TASK` under this computer's persistent
+service manager. Its SSH session owns the Windows T3 process. If a request or SSH
+connection ends ambiguously, inspect state and use the documented recovery path;
+never replay the prompt.
 
 For `host: local` on Windows, use the Windows local bot self-install procedure.
 Inspect existing paths, tasks and Tailscale mappings before running

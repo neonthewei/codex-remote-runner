@@ -26,8 +26,10 @@ Commands:
   version                         Print controller version
   init-key                        Generate a private headless-store key (never overwrite)
   bootstrap                       Create dedicated official Codex login VM
+  check-host                      Verify the configured remote Windows worker
   create --task ID                Create one task VM (configurable user/org/size)
-  serve-local ID                  Run one local task's T3 server in the foreground
+  serve-task ID                   Run one worktree task's T3 server in the foreground
+  serve-local ID                  Compatibility alias for serve-task
   handoff ID --to app|t3          Transfer the local task's single-writer owner
   prepare ID                      Clone configured repository and create task branch
   run ID --prompt-file PATH       Start or resume configured coding agent
@@ -81,6 +83,9 @@ func reorder(args []string) ([]string, error) {
 func execute(args []string) (any, error) {
 	if len(args) > 0 && args[0] == "t3-guest" {
 		return runT3Guest(args[1:])
+	}
+	if len(args) > 0 && args[0] == "worker" {
+		return runWindowsWorker(os.Stdin, args[1:])
 	}
 	if len(args) == 1 && (args[0] == "version" || args[0] == "--version") {
 		return map[string]string{"version": Version}, nil
@@ -183,6 +188,12 @@ func execute(args []string) (any, error) {
 	if e = c.Validate(); e != nil {
 		return nil, e
 	}
+	if action == "check-host" {
+		if len(f.Args()) != 0 || c.Host != "windows" {
+			return nil, errors.New("check-host requires windows configuration and no positional arguments")
+		}
+		return (&windowsHost{config: c}).Health()
+	}
 	if action == "init-key" {
 		if len(f.Args()) != 0 || c.CredentialBackend != "encrypted-file" {
 			return nil, errors.New("init-key requires encrypted-file configuration and no positional arguments")
@@ -192,7 +203,7 @@ func execute(args []string) (any, error) {
 		}
 		return map[string]string{"status": "key-created"}, nil
 	}
-	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true, "serve-local": true, "handoff": true}
+	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true, "serve-task": true, "serve-local": true, "handoff": true}
 	if !valid[action] {
 		return nil, errors.New("unknown command")
 	}
@@ -205,7 +216,7 @@ func execute(args []string) (any, error) {
 	} else if len(f.Args()) > 0 {
 		return nil, errors.New("unexpected positional arguments")
 	}
-	if action == "serve-local" {
+	if action == "serve-task" || action == "serve-local" {
 		s, err := openState(expandHome(root))
 		if err != nil {
 			return nil, err
@@ -215,8 +226,11 @@ func execute(args []string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if task.Host != "local" {
-			return nil, errors.New("serve-local requires a local task")
+		if !isWorktreeHost(task.Host) {
+			return nil, errors.New("serve-task requires a worktree task")
+		}
+		if task.Host == "windows" {
+			return nil, (&windowsHost{config: c}).Serve(task)
 		}
 		return nil, (&localHost{config: c}).Serve(task)
 	}
@@ -274,7 +288,7 @@ func execute(args []string) (any, error) {
 		if taskErr != nil {
 			return nil, taskErr
 		}
-		if task.Host != "local" && *supervision == "host" && !supervisorPresent(s.Root) {
+		if !isWorktreeHost(task.Host) && *supervision == "host" && !supervisorPresent(s.Root) {
 			return nil, errors.New("start codex-remote supervise as a persistent host service before run, or explicitly use --supervision external with your own watcher")
 		}
 		if *prompt == "" {

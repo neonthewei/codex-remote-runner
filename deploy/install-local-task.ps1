@@ -40,7 +40,7 @@ if ($serveEntry) {
     }
 }
 
-$arguments = '--config "{0}" --state "{1}" serve-local "{2}"' -f $ConfigPath, $StatePath, $TaskId
+$arguments = '--config "{0}" --state "{1}" serve-task "{2}"' -f $ConfigPath, $StatePath, $TaskId
 $action = New-ScheduledTaskAction -Execute $BinaryPath -Argument $arguments -WorkingDirectory (Split-Path -Parent $BinaryPath)
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited

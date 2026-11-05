@@ -48,6 +48,10 @@ func (f *fakeLocalControl) Serve(Task) error {
 	return nil
 }
 
+func (f *fakeLocalControl) Branch(Task) (string, error) {
+	return "task-branch", nil
+}
+
 func localConfig(root string) Config {
 	c := defaultConfig()
 	c.Host = "local"

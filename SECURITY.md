@@ -5,6 +5,20 @@ agent inside each task VM. A compromised host or malicious task code can access
 credentials available to it. The CLI is for one trusted controller host, not a
 multi-tenant service. Its lock is not distributed and profile names are not authentication.
 
+The remote Windows mode also trusts the controller computer, the Windows account,
+Tailscale and the pinned SSH host key. Its dedicated Ed25519 key is restricted by
+`authorized_keys` to the same reviewed binary's worker entrypoint. The controller
+sends one size-limited JSON request over standard input and cannot request a shell,
+PTY or forwarding with that key. The worker accepts only named Git/T3 operations
+and validates task paths against an operator-owned policy file. This bounds the
+transport entrypoint; it does not sandbox Codex. A dispatched coding turn runs as
+the Windows user and can exercise that account's filesystem and process authority.
+Compromise of the controller permits arbitrary task prompts, while compromise of
+Windows can forge worker responses. Keep the policy and controller state private,
+verify the host key out of band, restrict SSH to the tailnet and never use the T3
+browser as a command channel. The supplied installer disables SSH password
+authentication host-wide; review existing SSH users before applying it.
+
 Codex profiles execute serially. Checkpoint reads back saved credentials before
 removing guest auth and releasing a lease. Uncertain activity or failed storage
 retains the lease and work. Never clear locks to bypass a failed handoff.

@@ -1,0 +1,24 @@
+# Controller configuration for a bot running on another computer while Codex,
+# T3 and Git worktrees run on a trusted Windows host. No credential values.
+host: windows
+backend: t3
+user: your-windows-codex-profile
+provider: codex
+repo: owner/repo
+base: main
+
+# Private T3 origin exposed by Tailscale Serve on the Windows host.
+t3_public_url: https://windows-host.your-tailnet.ts.net:10000
+
+# Host alias from the controller computer's ~/.ssh/config. Verify its host key
+# interactively before allowing an agent to use it.
+windows_ssh_target: signal-windows
+windows_ssh_bin: ssh
+
+# Absolute paths on Windows. Forward slashes avoid YAML escaping.
+windows_repo_root: C:/Users/you/Documents/Project
+windows_worktree_root: C:/Users/you/.codex/worktrees/remote-project
+windows_state_root: C:/Users/you/.codex/state/codex-remote-runner
+windows_t3_bin: C:/Users/you/.t3/runtime/versions/VERSION/t3.exe
+windows_codex_bin: C:/Users/you/AppData/Local/OpenAI/Codex/bin/VERSION/codex.exe
+windows_t3_port: 3784

@@ -1,13 +1,14 @@
 # Codex Remote Runner
 
-Run Codex on a trusted Windows development computer from another agent or device.
-Each task gets a guarded Git worktree, a persistent T3 conversation and an
-optional private Tailscale URL. An optional Instabox backend remains available
-for isolated cloud VMs.
+Run Codex on a trusted Windows development computer from an agent on another
+computer. The agent runs the controller and uses SSH over Tailscale to operate a
+small worker on Windows. Each task gets a guarded Git worktree and persistent T3
+conversation. An optional Instabox backend remains available for cloud VMs.
 
 ```text
-Mac, phone or bot → private T3 URL → Windows controller → Git worktree
-                                                  └── T3 → Codex
+Grokbot computer → codex-remote controller → SSH/Tailscale → Windows worker
+                                                            └── T3 → Codex
+Phone or browser → private T3 URL ────────────────────────────┘
 ```
 
 Use any issue tracker or a plain prompt. A task ID is just your chosen identifier,
@@ -20,9 +21,10 @@ long-term recovery and the complete phone-to-PR workflow need more verification.
 
 ## Install on your bot's host
 
-Requires Go 1.26.10+. Local Windows mode also requires Git, T3 Code, an
-authenticated Codex installation and Tailscale. Instabox CLI is required only
-for the optional VM backend. The controller and skill need no Python runtime.
+Requires Go 1.26.10+ on the controller computer. Windows needs Git, T3 Code, an
+authenticated Codex installation, OpenSSH Server and Tailscale. Instabox CLI is
+required only for the optional VM backend. The controller and skill need no
+Python runtime.
 
 ```sh
 git clone https://github.com/neonthewei/codex-remote-runner.git
@@ -32,7 +34,77 @@ export PATH="$PWD/bin:$PATH"
 codex-remote --help
 ```
 
-## Local Windows host preview
+## Remote Windows host
+
+This is the normal mode when Grokbot or another agent has its own computer. The
+controller database, task decisions and uncertainty recovery stay on the bot's
+computer. Windows runs the same binary only in a constrained worker mode. The
+worker accepts structured worktree/T3 operations over SSH; the agent does not
+drive the T3 web UI and Grokbot is not installed on Windows.
+
+The worker constrains the remote command protocol, not the coding turn itself.
+Codex still runs with the signed-in Windows user's authority, so use this only
+when that agent is trusted to develop as that Windows account.
+
+On the bot computer, generate a dedicated key and return only its public half to
+the Windows operator:
+
+```sh
+ssh-keygen -t ed25519 -f "$HOME/.ssh/codex-remote-windows" -C codex-remote-windows
+```
+
+On Windows, clone this repository and run the worker installer from an elevated
+PowerShell. It installs OpenSSH Server when needed, disables SSH password login,
+restricts the firewall rule to Tailscale IPv4 space, builds the worker and
+authorizes only the supplied public key.
+
+```powershell
+pwsh -File deploy/install-windows-worker.ps1 `
+  -PublicKeyPath C:\private\codex-remote-windows.pub `
+  -RepoRoot C:\Users\you\Documents\Project `
+  -WorktreeRoot C:\Users\you\.codex\worktrees\remote-project `
+  -StateRoot C:\Users\you\.codex\state\codex-remote-runner `
+  -T3Path C:\Users\you\.t3\runtime\versions\VERSION\t3.exe `
+  -CodexPath C:\path\to\codex.exe `
+  -T3Port 3784
+```
+
+Back on the bot computer, pin the Tailscale host and dedicated key in
+`~/.ssh/config`:
+
+```sshconfig
+Host signal-windows
+  HostName windows-host.your-tailnet.ts.net
+  User your-windows-user
+  IdentityFile ~/.ssh/codex-remote-windows
+  IdentitiesOnly yes
+  AddressFamily inet
+```
+
+Compare the Windows Ed25519 SSH host-key fingerprint with a scan performed on the
+bot computer, add the verified key to `known_hosts`, then copy
+`config.windows.example.yaml` to a private path, replace every path and set
+`CODEX_REMOTE_CONFIG` to it. The dedicated key is forced to the worker protocol,
+so verify connectivity with `codex-remote check-host`, not a shell command. Then
+the bot uses normal controller commands:
+
+```sh
+codex-remote check-host
+codex-remote create --task remote-dev
+codex-remote prepare remote-dev
+
+# Keep this SSH-backed T3 session under the bot computer's service manager.
+codex-remote serve-task remote-dev
+
+# From another bot process after serve-task is online:
+codex-remote run remote-dev --model gpt-6.1-sol --prompt-file /private/task.txt
+codex-remote status remote-dev
+```
+
+The T3 HTTPS URL is optional human visibility. Grokbot's control path is the CLI
+and SSH worker protocol. See [remote Windows operations](docs/operations.md#remote-windows-host).
+
+## Same-computer Windows mode
 
 The local host backend replaces each task VM with a real Git worktree on the
 controller machine. T3 remains the remote interface and starts Codex with the
@@ -49,7 +121,7 @@ codex-remote create --task fix-login
 codex-remote prepare fix-login
 
 # Keep this foreground command under a trusted Windows service manager.
-codex-remote serve-local fix-login
+codex-remote serve-task fix-login
 
 # Run from another terminal or bot process.
 codex-remote run fix-login --model gpt-6.1-sol --prompt-file C:\private\task.txt
@@ -58,8 +130,8 @@ codex-remote status fix-login
 
 The underlying Codex conversation appears in Codex App when T3 and the app use
 the same Codex home. Codex permits one writer at a time. To take over locally,
-stop `serve-local`, then run `codex-remote handoff fix-login --to app`. To return
-control, release the conversation in Codex App, start `serve-local`, then run
+stop `serve-task`, then run `codex-remote handoff fix-login --to app`. To return
+control, release the conversation in Codex App, start `serve-task`, then run
 `codex-remote handoff fix-login --to t3`. The controller refuses T3 dispatch while
 the recorded owner is the app. App-created turns are not imported into T3's own
 message database, so inspect both histories after a handoff.
@@ -310,23 +382,22 @@ continue to work without Linear.
 
 ## Give it to your bot
 
-For a bot that should operate this Windows computer directly without Instabox,
-give it the repository URL plus this instruction:
+For a bot on another computer that should operate Windows without Instabox, give
+it the repository URL plus this instruction:
 
-> Install this repository on my trusted Windows Codex host. Read README.md,
-> skills/codex-remote/SKILL.md and the Windows local bot self-install section
-> in docs/operations.md. Do not install or create an Instabox VM. Preserve all
-> existing config, state, worktrees, services and Tailscale listeners. Run
-> deploy/bootstrap-local-windows.ps1 with the repository path and task ID I give
-> you. Do not perform login, expose Funnel, print pairing credentials or send a
-> task twice after an uncertain response. Verify the scheduled task, loopback T3
-> endpoint, private Tailscale URL, controller status and one harmless Codex turn.
-> Return the task ID, worktree, owner, conversation ID and private URL.
+> Install this repository on your own computer and read README.md,
+> skills/codex-remote/SKILL.md and the remote Windows host section in
+> docs/operations.md. Do not install Grokbot on Windows and do not use the T3 web
+> UI as your control channel. Generate a dedicated Ed25519 key and return only
+> its public key so the operator can provision the Windows worker. After the
+> operator confirms provisioning, verify the pinned SSH host, use private
+> `host: windows` YAML and run normal `codex-remote` commands from your computer.
+> Keep `serve-task` under your service manager. Never replay an uncertain request,
+> expose Funnel, print pairing credentials or bypass SSH host verification.
 
-This requires the bot to have a command-execution tool on the Windows host. The
-T3 browser URL is the human conversation surface, not a general remote shell.
-An agent running elsewhere needs an existing trusted command bridge, such as its
-host tool, restricted SSH or an allowlisted MCP wrapper around this CLI.
+This requires command execution only on the bot's own computer. Windows receives
+the worker binary and SSH public key, not Grokbot. The T3 browser URL remains a
+human conversation surface and is not the agent control channel.
 
 For an Instabox-backed host, use the original instruction below.
 
