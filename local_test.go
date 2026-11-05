@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -13,6 +14,7 @@ type fakeLocalControl struct {
 	served        bool
 	branch        string
 	branchMissing bool
+	prepareErr    error
 	result        StartResult
 	thread        map[string]any
 	pairing       string
@@ -20,7 +22,7 @@ type fakeLocalControl struct {
 
 func (f *fakeLocalControl) Prepare(Task, string, string) error {
 	f.prepared = true
-	return nil
+	return f.prepareErr
 }
 
 func (f *fakeLocalControl) Run(Task, string, string) (StartResult, error) {
@@ -200,6 +202,117 @@ func TestLocalRecoverPrepareResumesMissingWorktree(t *testing.T) {
 	task, err = r.RecoverPrepare(task.Ticket)
 	if err != nil || !control.prepared || task.Phase != "active" {
 		t.Fatal(task, err)
+	}
+}
+
+func TestLocalRecoverPrepareKeepsPreparingWhenSetupFails(t *testing.T) {
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{branch: "task-setup-failure-agent", prepareErr: errors.New("setup failed")}
+	r.Local = control
+	c := localConfig(t.TempDir())
+	r.Config = c
+	task, err := r.Create("TASK-SETUP-FAILURE", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Repo = c.Repo
+	task.Base = c.Base
+	task.Branch = "task-setup-failure-agent"
+	task.Phase = "preparing"
+	if err = r.State.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.RecoverPrepare(task.Ticket); err == nil {
+		t.Fatal("failed setup was reported as recovered")
+	}
+	stored, err := r.State.Task(task.Ticket)
+	if err != nil || stored.Phase != "preparing" {
+		t.Fatal(stored, err)
+	}
+}
+
+func TestLocalHostPrepareRunsPinnedSetupForExistingBranch(t *testing.T) {
+	root := t.TempDir()
+	worktree := filepath.Join(root, "worktrees", "task")
+	if err := os.MkdirAll(worktree, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init"}, {"checkout", "-b", "task-setup-agent"}} {
+		cmd := exec.Command("git", append([]string{"-C", worktree}, args...)...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatal(string(output), err)
+		}
+	}
+	t.Setenv("CODEX_REMOTE_SETUP_HELPER", "1")
+	host := &localHost{
+		config:    Config{LocalWorktreeRoot: filepath.Join(root, "worktrees")},
+		setupBin:  os.Args[0],
+		setupArgs: []string{"-test.run=^TestLocalSetupProcess$"},
+	}
+	task := Task{Worktree: worktree}
+	if err := host.Prepare(task, "main", "task-setup-agent"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "setup.marker")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLocalHostPrepareRunsPinnedSetupAfterCreatingWorktree(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	remote := filepath.Join(root, "remote.git")
+	worktree := filepath.Join(root, "worktrees", "task")
+	if err := os.MkdirAll(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []struct {
+		directory string
+		args      []string
+	}{
+		{root, []string{"init", "--bare", remote}},
+		{source, []string{"init", "-b", "main"}},
+		{source, []string{"config", "user.email", "test@example.com"}},
+		{source, []string{"config", "user.name", "Test"}},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", command.directory}, command.args...)...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatal(string(output), err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(source, "tracked.txt"), []byte("ready"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "tracked.txt"}, {"commit", "-m", "initial"}, {"remote", "add", "origin", remote}, {"push", "-u", "origin", "main"}} {
+		cmd := exec.Command("git", append([]string{"-C", source}, args...)...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatal(string(output), err)
+		}
+	}
+	t.Setenv("CODEX_REMOTE_SETUP_HELPER", "1")
+	host := &localHost{
+		config:    Config{LocalWorktreeRoot: filepath.Join(root, "worktrees")},
+		setupBin:  os.Args[0],
+		setupArgs: []string{"-test.run=^TestLocalSetupProcess$"},
+	}
+	task := Task{SourceRoot: source, Worktree: worktree}
+	if err := host.Prepare(task, "main", "task-setup-agent"); err != nil {
+		t.Fatal(err)
+	}
+	if branch, err := host.Branch(task); err != nil || branch != "task-setup-agent" {
+		t.Fatal(branch, err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "setup.marker")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLocalSetupProcess(t *testing.T) {
+	if os.Getenv("CODEX_REMOTE_SETUP_HELPER") != "1" {
+		return
+	}
+	if err := os.WriteFile("setup.marker", []byte("ready"), 0600); err != nil {
+		os.Exit(1)
 	}
 }
 

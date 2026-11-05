@@ -97,10 +97,34 @@ func TestWindowsInstallerSecuresHostPrivateKeys(t *testing.T) {
 		"S-1-5-32-544",
 		"Get-Command git.exe",
 		"`$env:Path = '$gitDirectory;' + `$env:Path",
+		"SetupExecutablePath",
+		"setup_args = @($SetupArguments)",
+		"setup_paths = @($resolvedSetupPaths)",
 	} {
 		if !strings.Contains(installer, required) {
 			t.Fatalf("Windows installer does not enforce host-key ACL requirement %q", required)
 		}
+	}
+}
+
+func TestWindowsWorkerSetupPolicyIsHostPinned(t *testing.T) {
+	policy := testWindowsWorkerPolicy()
+	policy.SetupArgs = []string{"scripts/setup.sh"}
+	if err := policy.Validate(); err == nil {
+		t.Fatal("setup arguments without a host-pinned executable were accepted")
+	}
+	policy.SetupBin = `relative/bash.exe`
+	if err := policy.Validate(); err == nil {
+		t.Fatal("relative setup executable was accepted")
+	}
+	policy.SetupBin = `C:/Program Files/Git/bin/bash.exe`
+	policy.SetupPaths = []string{`relative/node`}
+	if err := policy.Validate(); err == nil {
+		t.Fatal("relative setup PATH entry was accepted")
+	}
+	policy.SetupPaths = []string{`C:/Program Files/nodejs`}
+	if err := policy.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 

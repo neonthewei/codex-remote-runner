@@ -25,7 +25,10 @@ type LocalControl interface {
 }
 
 type localHost struct {
-	config Config
+	config     Config
+	setupBin   string
+	setupArgs  []string
+	setupPaths []string
 }
 
 func (r *Runner) localControl() LocalControl {
@@ -140,12 +143,13 @@ func (r *Runner) recoverPrepareLocal(t Task) (Task, error) {
 		return t, errors.New("task is not awaiting local preparation recovery")
 	}
 	branch, err := r.localControl().Branch(t)
-	if err != nil {
-		if prepareErr := r.localControl().Prepare(t, t.Base, t.Branch); prepareErr != nil {
-			return t, errors.New("local worktree does not match recorded task branch")
-		}
-		branch, err = r.localControl().Branch(t)
+	if err == nil && branch != t.Branch {
+		return t, errors.New("local worktree does not match recorded task branch")
 	}
+	if prepareErr := r.localControl().Prepare(t, t.Base, t.Branch); prepareErr != nil {
+		return t, errors.New("local worktree preparation did not complete")
+	}
+	branch, err = r.localControl().Branch(t)
 	if err != nil || branch != t.Branch {
 		return t, errors.New("local worktree does not match recorded task branch")
 	}
@@ -272,8 +276,19 @@ func (l *localHost) Prepare(t Task, base, branch string) error {
 	if err != nil || !within(root, t.Worktree) {
 		return errors.New("local worktree escaped configured root")
 	}
-	if _, err := os.Stat(t.Worktree); !os.IsNotExist(err) {
-		return errors.New("local worktree path already exists")
+	info, statErr := os.Stat(t.Worktree)
+	if statErr == nil {
+		if !info.IsDir() {
+			return errors.New("local worktree path already exists")
+		}
+		existingBranch, branchErr := l.Branch(t)
+		if branchErr != nil || existingBranch != branch {
+			return errors.New("local worktree path already exists with another branch")
+		}
+		return l.setup(t)
+	}
+	if !os.IsNotExist(statErr) {
+		return errors.New("cannot inspect local worktree path")
 	}
 	if err := runLocalCommand(nil, "git", "-C", t.SourceRoot, "fetch", "origin", base); err != nil {
 		return errors.New("cannot fetch configured local base")
@@ -283,6 +298,21 @@ func (l *localHost) Prepare(t Task, base, branch string) error {
 	}
 	if err := runLocalCommand(nil, "git", "-C", t.SourceRoot, "worktree", "add", "-b", branch, t.Worktree, "origin/"+base); err != nil {
 		return errors.New("cannot create local task worktree")
+	}
+	return l.setup(t)
+}
+
+func (l *localHost) setup(t Task) error {
+	if l.setupBin == "" {
+		return nil
+	}
+	cmd := exec.Command(l.setupBin, l.setupArgs...)
+	cmd.Dir = t.Worktree
+	cmd.Env = environmentWithPaths(os.Environ(), l.setupPaths)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := runManagedProcess(cmd); err != nil {
+		return errors.New("local worktree setup failed; inspect the host privately")
 	}
 	return nil
 }
@@ -398,17 +428,25 @@ func (l *localHost) t3(input io.Reader, t Task, args ...string) ([]byte, error) 
 }
 
 func localEnvironment(c Config) []string {
-	env := os.Environ()
+	paths := []string{}
 	if filepath.IsAbs(c.LocalCodexBin) {
-		dir := filepath.Dir(c.LocalCodexBin)
-		for index, value := range env {
-			if strings.HasPrefix(strings.ToUpper(value), "PATH=") {
-				env[index] = "PATH=" + dir + string(os.PathListSeparator) + value[len("PATH="):]
-				return env
-			}
-		}
-		env = append(env, "PATH="+dir)
+		paths = append(paths, filepath.Dir(c.LocalCodexBin))
 	}
+	return environmentWithPaths(os.Environ(), paths)
+}
+
+func environmentWithPaths(env, paths []string) []string {
+	if len(paths) == 0 {
+		return env
+	}
+	prefix := strings.Join(paths, string(os.PathListSeparator))
+	for index, value := range env {
+		if strings.HasPrefix(strings.ToUpper(value), "PATH=") {
+			env[index] = "PATH=" + prefix + string(os.PathListSeparator) + value[len("PATH="):]
+			return env
+		}
+	}
+	env = append(env, "PATH="+prefix)
 	return env
 }
 

@@ -69,6 +69,21 @@ pwsh -File deploy/install-windows-worker.ps1 `
   -T3Port 3784
 ```
 
+Repositories that require a fresh-worktree bootstrap can bind one reviewed local
+setup executable into the worker policy. The controller cannot replace or append
+arguments. For example:
+
+```powershell
+pwsh -File deploy/install-windows-worker.ps1 `
+  <# the required arguments above #> `
+  -SetupExecutablePath 'C:\Program Files\Git\bin\bash.exe' `
+  -SetupArguments @('scripts/agent-worktree-setup.sh') `
+  -SetupPathEntries @('C:\Program Files\nodejs', 'C:\Users\you\AppData\Roaming\npm')
+```
+
+`prepare` reaches `active` only after this command succeeds in the task worktree.
+No setup command is run when the policy leaves it unconfigured.
+
 If the Windows in-box OpenSSH service exits with error 1067, follow
 [Microsoft's documented upgrade procedure](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release):
 download the latest Win64 MSI from the official PowerShell/Win32-OpenSSH release,
