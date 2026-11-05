@@ -95,9 +95,27 @@ func TestWindowsInstallerSecuresHostPrivateKeys(t *testing.T) {
 		"SetOwner($systemSid)",
 		"S-1-5-18",
 		"S-1-5-32-544",
+		"Get-Command git.exe",
+		"`$env:Path = '$gitDirectory;' + `$env:Path",
 	} {
 		if !strings.Contains(installer, required) {
 			t.Fatalf("Windows installer does not enforce host-key ACL requirement %q", required)
+		}
+	}
+}
+
+func TestWindowsWorkerReturnsStructuredRemoteError(t *testing.T) {
+	err := decodeWindowsWorkerError([]byte(`{"error":"cannot fetch configured local base"}`))
+	if err == nil || err.Error() != "Windows worker: cannot fetch configured local base" {
+		t.Fatal(err)
+	}
+	for _, raw := range [][]byte{
+		[]byte("ssh transport failed"),
+		[]byte("warning\n{\"error\":\"cannot fetch configured local base\"}"),
+		[]byte(`{"other":"value"}`),
+	} {
+		if err = decodeWindowsWorkerError(raw); err != nil {
+			t.Fatalf("unstructured SSH stderr escaped: %v", err)
 		}
 	}
 }

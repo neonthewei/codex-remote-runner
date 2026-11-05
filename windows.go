@@ -82,11 +82,15 @@ func (w *windowsHost) call(out any, request windowsWorkerRequest, timeout time.D
 		return err
 	}
 	stdout := &boundedOutput{limit: 4 << 20}
+	stderr := &boundedOutput{limit: 64 << 10}
 	cmd.Stdout = stdout
-	cmd.Stderr = io.Discard
+	cmd.Stderr = stderr
 	if err = cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return errors.New("Windows worker outcome uncertain; inspect before retrying")
+		}
+		if workerErr := decodeWindowsWorkerError(stderr.data); workerErr != nil {
+			return workerErr
 		}
 		return errors.New("Windows worker operation failed; inspect the host privately")
 	}
@@ -94,6 +98,16 @@ func (w *windowsHost) call(out any, request windowsWorkerRequest, timeout time.D
 		return errors.New("unexpected Windows worker response")
 	}
 	return nil
+}
+
+func decodeWindowsWorkerError(raw []byte) error {
+	response := struct {
+		Error string `json:"error"`
+	}{}
+	if json.Unmarshal(bytes.TrimSpace(raw), &response) != nil || response.Error == "" || len(response.Error) > 1024 {
+		return nil
+	}
+	return errors.New("Windows worker: " + response.Error)
 }
 
 func (w *windowsHost) Prepare(t Task, base, branch string) error {
