@@ -92,6 +92,28 @@ output because that output contains a bootstrap pairing credential.
 Configure `local_t3_bin` with T3's real versioned `t3.exe` for the scheduled
 service; the interactive `t3.cmd` launcher can detach its child without a console.
 
+For a new trusted Windows host, an agent with PowerShell access can perform the
+complete idempotent installation from this checkout. The bootstrap detects the
+installed Codex, T3, Git, Go and Tailscale executables, builds the controller,
+creates private config only when absent, prepares the worktree and installs the
+scheduled service. It never performs Codex login or browser pairing.
+
+```powershell
+pwsh -File deploy/bootstrap-local-windows.ps1 `
+  -LocalRepoRoot C:\src\your-repository `
+  -TaskId remote-dev `
+  -LocalPort 3784 `
+  -TailscaleHttpsPort 10000
+```
+
+Existing config, controller state and task worktrees are preserved. A conflicting
+Tailscale HTTPS port fails without replacing its current listener. Run the script
+as the same signed-in Windows user that owns the Codex login. See
+[Windows local bot self-install](docs/operations.md#windows-local-bot-self-install)
+for agent instructions, verification and handoff rules. An existing installed
+binary is reused; pass `-Rebuild` only during an intentional controller upgrade
+after stopping its scheduled task.
+
 ## Configure and log in
 
 ```sh
@@ -280,6 +302,26 @@ See [Linear operations](docs/operations.md#linear-agent). The dashboard and CLI
 continue to work without Linear.
 
 ## Give it to your bot
+
+For a bot that should operate this Windows computer directly without Instabox,
+give it the repository URL plus this instruction:
+
+> Install this repository on my trusted Windows Codex host. Read README.md,
+> skills/instabox-ticket/SKILL.md and the Windows local bot self-install section
+> in docs/operations.md. Do not install or create an Instabox VM. Preserve all
+> existing config, state, worktrees, services and Tailscale listeners. Run
+> deploy/bootstrap-local-windows.ps1 with the repository path and task ID I give
+> you. Do not perform login, expose Funnel, print pairing credentials or send a
+> task twice after an uncertain response. Verify the scheduled task, loopback T3
+> endpoint, private Tailscale URL, controller status and one harmless Codex turn.
+> Return the task ID, worktree, owner, conversation ID and private URL.
+
+This requires the bot to have a command-execution tool on the Windows host. The
+T3 browser URL is the human conversation surface, not a general remote shell.
+An agent running elsewhere needs an existing trusted command bridge, such as its
+host tool, restricted SSH or an allowlisted MCP wrapper around this CLI.
+
+For an Instabox-backed host, use the original instruction below.
 
 > Install this repository on your own persistent host. Read README.md and
 > skills/instabox-ticket/SKILL.md, then follow the bot self-install procedure in

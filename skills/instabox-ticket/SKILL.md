@@ -1,6 +1,6 @@
 ---
 name: instabox-ticket
-description: Run or resume coding tasks on Instabox with the Go controller and private YAML. Works with any task source, including plain prompts, with an optional Linear Agent Sessions bridge. PR publication remains agent-owned.
+description: Run or resume guarded Codex coding tasks in Instabox VMs or Windows worktrees with the Go controller and private YAML. Works with any task source, including plain prompts, with an optional Linear Agent Sessions bridge. PR publication remains agent-owned.
 ---
 
 # Instabox tasks
@@ -13,6 +13,20 @@ bin/ib-ticket; build it with `go build -o bin/ib-ticket .` first.
 For installation on a bot's own host, follow the bot self-install procedure in
 docs/operations.md. Reuse existing config, credential keys, state and skill links.
 Verify a real task and revision after service setup, not just a successful build.
+
+For `host: local` on Windows, use the Windows local bot self-install procedure.
+Inspect existing paths, tasks and Tailscale mappings before running
+`deploy/bootstrap-local-windows.ps1`. Local mode uses the signed-in host's Codex
+login and real Git worktrees; it does not need Instabox, credential export,
+`init-key`, `bootstrap`, `checkpoint` or the Linux supervisor. Never install an
+Instabox VM as a fallback for a requested local host.
+
+After local installation, use `status` before every dispatch. Send work only when
+the owner is `t3`, T3 is online and no run is active. Write prompts to private
+files and use `run`; never include secrets in them. Stop the scheduled service
+before `handoff --to app`. Restart it and verify the endpoint before
+`handoff --to t3`. An uncertain dispatch uses `recover-turn`, never replay. Pair
+through a private output file and do not expose its contents in model context.
 
 Execute on the bot's persistent host for phone-driven work. Use the operator's
 private YAML through IB_TICKET_CONFIG for every command. Headless hosts select

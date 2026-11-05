@@ -26,6 +26,20 @@ if ($LASTEXITCODE -ne 0) {
     throw 'local task is not prepared'
 }
 
+$tailscaleStatus = (& $TailscalePath status --json | ConvertFrom-Json)
+$tailnetHost = $tailscaleStatus.Self.DNSName.TrimEnd('.')
+$proxyTarget = "http://127.0.0.1:$LocalPort"
+$serveStatus = (& $TailscalePath serve status --json | ConvertFrom-Json)
+$serveKey = "$tailnetHost`:$TailscaleHttpsPort"
+$serveEntry = $serveStatus.Web.PSObject.Properties[$serveKey]
+if ($serveEntry) {
+    $rootHandler = $serveEntry.Value.Handlers.PSObject.Properties['/']
+    $existingTarget = if ($rootHandler) { $rootHandler.Value.Proxy } else { $null }
+    if ($existingTarget -ne $proxyTarget) {
+        throw "Tailscale HTTPS port $TailscaleHttpsPort is already assigned to another service"
+    }
+}
+
 $arguments = '--config "{0}" --state "{1}" serve-local "{2}"' -f $ConfigPath, $StatePath, $TaskId
 $action = New-ScheduledTaskAction -Execute $BinaryPath -Argument $arguments -WorkingDirectory (Split-Path -Parent $BinaryPath)
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -52,12 +66,10 @@ if (!$ready) {
     throw 'scheduled task started but local T3 did not become ready'
 }
 
-& $TailscalePath serve --bg --yes "--https=$TailscaleHttpsPort" "http://127.0.0.1:$LocalPort" | Out-Null
+& $TailscalePath serve --bg --yes "--https=$TailscaleHttpsPort" $proxyTarget | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw 'Tailscale Serve configuration failed'
 }
-$tailscaleStatus = (& $TailscalePath status --json | ConvertFrom-Json)
-$tailnetHost = $tailscaleStatus.Self.DNSName.TrimEnd('.')
 
 [pscustomobject]@{
     task = $taskName

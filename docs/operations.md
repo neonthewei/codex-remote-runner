@@ -48,6 +48,74 @@ VM, branch and conversation continue. The operator then verifies the HTTPS task
 view from a real phone with their laptop offline. Report these results separately
 from build/service startup. Create a PR only when authorized by that task.
 
+## Windows local bot self-install
+
+Use this path when the coding environment is an existing trusted Windows desktop
+instead of an Instabox VM. The agent must already have a command-execution channel
+on that Windows account. Browser access to T3 alone is not a shell or installer.
+Run every command as the same signed-in user that owns the Codex login.
+
+Before mutation, inspect the checkout, `git status`, existing `ib-ticket.exe`,
+private YAML/state paths, scheduled tasks named `InstaboxTicketRunner-*`, T3
+versions, Codex executable, Tailscale status and existing Serve mappings. Preserve
+all existing installations. Do not reinstall Codex, log out an account, replace a
+config file, delete a worktree or take over a Tailscale port to make setup pass.
+
+Required host state is Git, Go 1.26.10 or newer, an authenticated Codex install,
+T3 Code and an online Tailscale client. Clone or update this repository without
+discarding local work, then run:
+
+```powershell
+pwsh -File deploy/bootstrap-local-windows.ps1 `
+  -LocalRepoRoot C:\absolute\path\to\repository `
+  -TaskId remote-dev `
+  -LocalPort 3784 `
+  -TailscaleHttpsPort 10000
+```
+
+Pass `-Repository OWNER/REPO` only when the source checkout's `origin` is not a
+GitHub URL. Pass explicit `-T3Path`, `-CodexPath` or `-TailscalePath` when normal
+discovery does not find the intended installation. The bootstrap builds the
+controller under the user's `.local\bin`, writes new private YAML/state under
+`.codex\state\instabox-ticket-runner`, creates a task worktree under
+`.codex\worktrees`, and installs the per-user scheduled service. Existing files
+are reused. It fails closed when status is not an explicit unknown task or the
+requested Tailscale HTTPS port belongs to another service.
+An existing controller binary is reused. For an intentional upgrade, stop its
+scheduled task and pass `-Rebuild`; do not attempt to replace a running Windows
+executable.
+
+The script does not automate Codex authentication. If Codex is not already
+authenticated, stop and let the operator complete the official login. It also
+does not emit a pairing credential. For a new browser, write pairing information
+to a private file and have the operator open it locally:
+
+```powershell
+ib-ticket --config C:\private\config.yaml --state C:\private\state `
+  pair remote-dev --output-file C:\private\pair.json
+```
+
+Never paste or upload that file. Remove it after the browser is paired. Funnel is
+not required; the returned Tailscale URL stays private to the selected tailnet.
+
+Acceptance requires all of the following evidence:
+
+- the scheduled task is running and restarts after a controlled stop;
+- `/.well-known/t3/environment` responds on the configured loopback port;
+- the private Tailscale HTTPS origin responds from another tailnet device;
+- `status TASK` reports the expected source repo, isolated worktree, owner and no
+  active run before dispatch;
+- one harmless prompt completes in the same worktree and its conversation is
+  visible in T3; and
+- stopping the scheduled task closes the listener and starting it restores the
+  same task, history and conversation.
+
+Local mode has one writer. Stop the scheduled task before `handoff TASK --to app`.
+Release the conversation in Codex App, start the scheduled task, verify T3 is
+online and then use `handoff TASK --to t3`. Never dispatch while the app owns the
+task. If a launch response is uncertain, inspect status and recover the original
+conversation with `recover-turn`; do not send the same prompt again.
+
 ## Host services and Tailscale
 
 For interactive Codex tasks, use [T3 Code](#t3-code) below. The commands in this
