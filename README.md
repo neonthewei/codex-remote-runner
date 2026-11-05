@@ -350,4 +350,7 @@ The skill also works with other agents that can execute host commands.
 [Operations](docs/operations.md) · [Security](SECURITY.md) ·
 [CI](https://github.com/neonthewei/codex-remote-runner/actions/workflows/test.yml)
 
-MIT licensed. Community project, unaffiliated with Instabox or model providers.
+Codex Remote Runner builds on Kevin Lin's
+[Instabox Ticket Runner](https://github.com/kevinsslin/instabox-ticket-runner)
+and retains its Git history and MIT license. This community project is
+unaffiliated with Instabox or model providers.
