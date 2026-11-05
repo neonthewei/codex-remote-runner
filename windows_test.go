@@ -83,6 +83,25 @@ func TestWindowsConfigurationRejectsIncompleteRemoteHost(t *testing.T) {
 	}
 }
 
+func TestWindowsInstallerSecuresHostPrivateKeys(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("deploy", "install-windows-worker.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := string(raw)
+	for _, required := range []string{
+		"ssh_host_*_key",
+		"SetAccessRuleProtection($true, $false)",
+		"SetOwner($systemSid)",
+		"S-1-5-18",
+		"S-1-5-32-544",
+	} {
+		if !strings.Contains(installer, required) {
+			t.Fatalf("Windows installer does not enforce host-key ACL requirement %q", required)
+		}
+	}
+}
+
 func TestWindowsSSHCommandUsesForcedWorkerRequest(t *testing.T) {
 	c := windowsConfig()
 	w := &windowsHost{config: c}
