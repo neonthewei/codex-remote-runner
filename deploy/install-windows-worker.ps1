@@ -10,6 +10,7 @@ param(
     [string]$InstallPath = "$HOME\.local\bin\codex-remote.exe",
     [string]$PolicyPath = "$HOME\.codex\state\codex-remote-runner\windows-worker.json",
     [string]$GoPath,
+    [string]$OpenSSHMSIPath,
     [string]$TailscaleIPv4Range = '100.64.0.0/10'
 )
 
@@ -39,6 +40,15 @@ $PolicyPath = [System.IO.Path]::GetFullPath($PolicyPath)
 $capability = Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0'
 if ($capability.State -ne 'Installed') {
     Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' | Out-Null
+}
+if ($OpenSSHMSIPath) {
+    $OpenSSHMSIPath = (Resolve-Path -LiteralPath $OpenSSHMSIPath).Path
+    $signature = Get-AuthenticodeSignature -FilePath $OpenSSHMSIPath
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(^|, )O=Microsoft Corporation(,|$)') {
+        throw 'OpenSSH MSI must have a valid Microsoft Corporation signature'
+    }
+    $msi = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $OpenSSHMSIPath, 'ADDLOCAL=Server', '/qn', '/norestart') -WindowStyle Hidden -Wait -PassThru
+    if ($msi.ExitCode -ne 0 -and $msi.ExitCode -ne 3010) { throw "OpenSSH MSI failed with exit code $($msi.ExitCode)" }
 }
 
 $checkoutRoot = Split-Path -Parent $PSScriptRoot
@@ -105,7 +115,30 @@ if ($isAdministrator) {
 }
 if ($LASTEXITCODE -ne 0) { throw 'could not secure authorized_keys permissions' }
 
-$sshdConfig = Join-Path $env:ProgramData 'ssh\sshd_config'
+$openSshRoot = @(
+    (Join-Path $env:ProgramFiles 'OpenSSH'),
+    (Join-Path $env:ProgramFiles 'OpenSSH-Win64'),
+    (Join-Path $env:WINDIR 'System32\OpenSSH')
+) | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'sshd.exe') } | Select-Object -First 1
+if (!$openSshRoot) { throw 'OpenSSH Server executable is missing' }
+$sshd = Join-Path $openSshRoot 'sshd.exe'
+$sshKeygen = Join-Path $openSshRoot 'ssh-keygen.exe'
+$sshdDirectory = Join-Path $env:ProgramData 'ssh'
+$sshdLogs = Join-Path $sshdDirectory 'logs'
+$sshdConfig = Join-Path $sshdDirectory 'sshd_config'
+New-Item -ItemType Directory -Force -Path $sshdDirectory | Out-Null
+New-Item -ItemType Directory -Force -Path $sshdLogs | Out-Null
+foreach ($directory in @($sshdDirectory, $sshdLogs)) {
+    & icacls.exe $directory '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '/grant' '*S-1-5-32-544:(OI)(CI)F' '/grant' '*S-1-5-11:(OI)(CI)RX' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "could not secure OpenSSH directory: $directory" }
+}
+if (!(Test-Path -LiteralPath $sshdConfig)) {
+    $defaultConfig = Join-Path $openSshRoot 'sshd_config_default'
+    if (!(Test-Path -LiteralPath $defaultConfig)) { throw 'OpenSSH default configuration is missing' }
+    Copy-Item -LiteralPath $defaultConfig -Destination $sshdConfig
+}
+& $sshKeygen -A
+if ($LASTEXITCODE -ne 0) { throw 'OpenSSH host-key initialization failed' }
 $backup = "$sshdConfig.codex-remote.bak"
 if (!(Test-Path -LiteralPath $backup)) {
     Copy-Item -LiteralPath $sshdConfig -Destination $backup
@@ -128,7 +161,6 @@ if ($matchIndex -ge 0) {
 }
 [System.IO.File]::WriteAllLines($sshdConfig, $config)
 
-$sshd = Join-Path $env:WINDIR 'System32\OpenSSH\sshd.exe'
 & $sshd -t -f $sshdConfig
 if ($LASTEXITCODE -ne 0) {
     Copy-Item -LiteralPath $backup -Destination $sshdConfig -Force
@@ -144,7 +176,7 @@ if (!$firewall) {
     $firewall = New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (Tailscale only)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
 }
 $firewall | Get-NetFirewallAddressFilter | Set-NetFirewallAddressFilter -RemoteAddress $TailscaleIPv4Range
-$hostFingerprint = & (Join-Path $env:WINDIR 'System32\OpenSSH\ssh-keygen.exe') -lf (Join-Path $env:ProgramData 'ssh\ssh_host_ed25519_key.pub')
+$hostFingerprint = & $sshKeygen -lf (Join-Path $env:ProgramData 'ssh\ssh_host_ed25519_key.pub')
 
 [pscustomobject]@{
     worker = (Resolve-Path -LiteralPath $InstallPath).Path

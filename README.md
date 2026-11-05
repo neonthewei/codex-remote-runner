@@ -69,6 +69,13 @@ pwsh -File deploy/install-windows-worker.ps1 `
   -T3Port 3784
 ```
 
+If the Windows in-box OpenSSH service exits with error 1067, follow
+[Microsoft's documented upgrade procedure](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release):
+download the latest Win64 MSI from the official PowerShell/Win32-OpenSSH release,
+verify its published digest, and rerun with
+`-OpenSSHMSIPath C:\private\OpenSSH-Win64-VERSION.msi`. The installer also requires
+a valid Microsoft Corporation Authenticode signature.
+
 Back on the bot computer, pin the Tailscale host and dedicated key in
 `~/.ssh/config`:
 
