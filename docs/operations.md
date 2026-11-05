@@ -532,7 +532,7 @@ of work or credentials.
 | Task phase | Action |
 | --- | --- |
 | `creating` / `created` | Inspect provider state, then `reconcile TASK_ID` |
-| `preparing` | Check origin and branch; `recover-prepare TASK_ID` verifies the checkout |
+| `preparing` | Check origin and branch; `recover-prepare TASK_ID` verifies the checkout or safely resumes creation when the worktree is absent |
 | `restoring` | Restore key/store access, then retry `activate TASK_ID` under its lease |
 | `starting-turn` | Inspect native conversations, then `recover-turn TASK_ID --conversation ID` |
 | `active` | Activate an idle-paused VM, follow work and checkpoint after completion |

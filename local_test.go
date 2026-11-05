@@ -8,12 +8,14 @@ import (
 )
 
 type fakeLocalControl struct {
-	online   bool
-	prepared bool
-	served   bool
-	result   StartResult
-	thread   map[string]any
-	pairing  string
+	online        bool
+	prepared      bool
+	served        bool
+	branch        string
+	branchMissing bool
+	result        StartResult
+	thread        map[string]any
+	pairing       string
 }
 
 func (f *fakeLocalControl) Prepare(Task, string, string) error {
@@ -48,7 +50,16 @@ func (f *fakeLocalControl) Serve(Task) error {
 	return nil
 }
 
-func (f *fakeLocalControl) Branch(Task) (string, error) {
+func (f *fakeLocalControl) Branch(t Task) (string, error) {
+	if f.branchMissing && !f.prepared {
+		return "", errors.New("missing worktree")
+	}
+	if f.branch != "" {
+		return f.branch, nil
+	}
+	if f.prepared {
+		return t.Branch, nil
+	}
 	return "task-branch", nil
 }
 
@@ -166,6 +177,29 @@ func TestLocalPrepareDoesNotHideUncertainState(t *testing.T) {
 	}
 	if _, err = r.Prepare(task.Ticket, c.Repo, c.Base); err == nil {
 		t.Fatal("uncertain local preparation was reported as complete")
+	}
+}
+
+func TestLocalRecoverPrepareResumesMissingWorktree(t *testing.T) {
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{branchMissing: true}
+	r.Local = control
+	c := localConfig(t.TempDir())
+	r.Config = c
+	task, err := r.Create("TASK-RECOVER-PREPARE", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Repo = c.Repo
+	task.Base = c.Base
+	task.Branch = "task-recover-prepare-agent"
+	task.Phase = "preparing"
+	if err = r.State.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	task, err = r.RecoverPrepare(task.Ticket)
+	if err != nil || !control.prepared || task.Phase != "active" {
+		t.Fatal(task, err)
 	}
 }
 
