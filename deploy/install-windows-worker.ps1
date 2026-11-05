@@ -10,6 +10,7 @@ param(
     [string]$InstallPath = "$HOME\.local\bin\codex-remote.exe",
     [string]$PolicyPath = "$HOME\.codex\state\codex-remote-runner\windows-worker.json",
     [string]$GoPath,
+    [string]$GitPath,
     [string]$OpenSSHMSIPath,
     [string]$TailscaleIPv4Range = '100.64.0.0/10'
 )
@@ -36,6 +37,15 @@ $CodexPath = (Resolve-Path -LiteralPath $CodexPath).Path
 $WorktreeRoot = [System.IO.Path]::GetFullPath($WorktreeRoot)
 $StateRoot = [System.IO.Path]::GetFullPath($StateRoot)
 $PolicyPath = [System.IO.Path]::GetFullPath($PolicyPath)
+
+if ($GitPath) {
+    if (!(Test-Path -LiteralPath $GitPath -PathType Leaf)) { throw "Git executable is missing: $GitPath" }
+    $GitPath = (Resolve-Path -LiteralPath $GitPath).Path
+} else {
+    $git = Get-Command git.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (!$git) { throw 'Git for Windows is required by the worker.' }
+    $GitPath = $git.Source
+}
 
 $capability = Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0'
 if ($capability.State -ne 'Installed') {
@@ -100,7 +110,8 @@ if ($isAdministrator) {
 }
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $authorizedKeys) | Out-Null
 $existingKeys = if (Test-Path -LiteralPath $authorizedKeys) { Get-Content -LiteralPath $authorizedKeys } else { @() }
-$workerScript = "& '" + $InstallPath.Replace("'", "''") + "' worker --policy '" + $PolicyPath.Replace("'", "''") + "'"
+$gitDirectory = (Split-Path -Parent $GitPath).Replace("'", "''")
+$workerScript = "`$env:Path = '$gitDirectory;' + `$env:Path; & '" + $InstallPath.Replace("'", "''") + "' worker --policy '" + $PolicyPath.Replace("'", "''") + "'"
 $encodedWorker = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerScript))
 $forcedKey = "command=`"powershell.exe -NoProfile -NonInteractive -EncodedCommand $encodedWorker`",no-agent-forwarding,no-port-forwarding,no-pty,no-X11-forwarding $publicKey"
 $escapedIdentity = [regex]::Escape($keyIdentity)
