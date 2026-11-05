@@ -183,6 +183,7 @@ rejects unknown YAML fields and multiple documents. It does not load `.env` file
 
 | YAML field | Environment variable | Purpose |
 | --- | --- | --- |
+| `host` | `IB_TICKET_HOST` | `instabox` or the experimental `local` host |
 | `user` | `IB_TICKET_USER` | Your credential profile name |
 | `org` | `IB_TICKET_ORG` | Instabox workspace ID |
 | `provider` | `IB_TICKET_PROVIDER` | `codex` or `claude` |
@@ -194,6 +195,24 @@ rejects unknown YAML fields and multiple documents. It does not load `.env` file
 | `secrets` | `IB_TICKET_SECRETS` | Existing Instabox Secret names; comma-separated in env |
 | `credential_backend` | `IB_TICKET_CREDENTIAL_BACKEND` | `encrypted-file` or `native` |
 | `credential_key_file` | `IB_TICKET_CREDENTIAL_KEY_FILE` | Private key path, with `~/` expansion |
+| `local_repo_root` | `IB_TICKET_LOCAL_REPO_ROOT` | Absolute source repository used to create local worktrees |
+| `local_worktree_root` | `IB_TICKET_LOCAL_WORKTREE_ROOT` | Absolute parent directory for local task worktrees |
+| `local_t3_bin` | `IB_TICKET_LOCAL_T3_BIN` | T3 executable or Windows command path |
+| `local_codex_bin` | `IB_TICKET_LOCAL_CODEX_BIN` | Codex executable used by the T3 server |
+| `local_t3_port` | `IB_TICKET_LOCAL_T3_PORT` | Loopback T3 port for this local task |
+
+With `host: local`, `backend` must be `t3` and `provider` must be `codex`.
+`create` records bounded local paths, `prepare` fetches the configured base and
+creates an isolated worktree, and `serve-local` runs that task's T3 server in the
+foreground without holding the controller database lock. Run it under a trusted
+service manager. `run` and `status` use the recorded T3 data directory and port.
+
+The local Codex profile remains leased to the task across app handoffs. Stop the
+T3 server before `handoff TASK --to app`; start it before `handoff TASK --to t3`.
+Codex itself enforces a single active writer, so close or release the conversation
+in the previous client before the next client sends work. A failed start remains
+uncertain. Inspect T3 and use `recover-turn TASK --conversation T3_THREAD_ID`
+instead of sending the prompt again.
 
 `IB_TICKET_STATE` or global `--state PATH` selects the state directory, defaulting
 to `~/.local/state/instabox-ticket-runner`. It must be private (0700). Keep the

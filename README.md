@@ -1,8 +1,8 @@
 # Instabox Task Runner
 
-Run coding tasks in isolated Instabox VMs from your bot's own host. Send a task
-from your phone, pause the VM between revisions, and continue in the same working
-branch and conversation.
+Run coding tasks in isolated Instabox VMs or in guarded worktrees on one trusted
+local host. Send a task from another device and continue in the same working
+branch and Codex conversation.
 
 ```text
 Phone / T3 Code ← private HTTPS → Go controller ← SSH → Instabox task VM
@@ -30,6 +30,43 @@ go build -o bin/ib-ticket .
 export PATH="$PWD/bin:$PATH"
 ib-ticket --help
 ```
+
+## Local Windows host preview
+
+The local host backend replaces each task VM with a real Git worktree on the
+controller machine. T3 remains the remote interface and starts Codex with the
+host's existing login. Copy `config.local.example.yaml` outside the checkout,
+replace its paths, and keep the same private config for every command.
+
+```text
+Mac, phone or bot → private T3 URL → Windows controller → local worktree
+                                                   └── T3 → Codex App Server
+```
+
+```powershell
+ib-ticket create --task fix-login
+ib-ticket prepare fix-login
+
+# Keep this foreground command under a trusted Windows service manager.
+ib-ticket serve-local fix-login
+
+# Run from another terminal or bot process.
+ib-ticket run fix-login --model gpt-6.1-sol --prompt-file C:\private\task.txt
+ib-ticket status fix-login
+```
+
+The underlying Codex conversation appears in Codex App when T3 and the app use
+the same Codex home. Codex permits one writer at a time. To take over locally,
+stop `serve-local`, then run `ib-ticket handoff fix-login --to app`. To return
+control, release the conversation in Codex App, start `serve-local`, then run
+`ib-ticket handoff fix-login --to t3`. The controller refuses T3 dispatch while
+the recorded owner is the app. App-created turns are not imported into T3's own
+message database, so inspect both histories after a handoff.
+
+Local mode is currently one serialized Codex profile, one T3 listener per task,
+and an operator-managed foreground service. It does not copy credentials,
+checkpoint a VM, or require Instabox. The controller fetches the configured base
+from `origin` and creates a new task branch beneath `local_worktree_root`.
 
 ## Configure and log in
 

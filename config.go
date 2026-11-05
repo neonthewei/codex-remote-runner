@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	Host              string   `yaml:"host"`
 	Backend           string   `yaml:"backend"`
 	GuestBinary       string   `yaml:"guest_binary"`
 	T3PublicURL       string   `yaml:"t3_public_url"`
@@ -29,6 +30,11 @@ type Config struct {
 	Secrets           []string `yaml:"secrets"`
 	CredentialBackend string   `yaml:"credential_backend"`
 	CredentialKeyFile string   `yaml:"credential_key_file"`
+	LocalRepoRoot     string   `yaml:"local_repo_root"`
+	LocalWorktreeRoot string   `yaml:"local_worktree_root"`
+	LocalT3Bin        string   `yaml:"local_t3_bin"`
+	LocalCodexBin     string   `yaml:"local_codex_bin"`
+	LocalT3Port       int      `yaml:"local_t3_port"`
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$`)
@@ -42,8 +48,12 @@ func validID(s string) error {
 	return nil
 }
 
+func defaultConfig() Config {
+	return Config{Host: "instabox", Provider: "codex", Base: "main", AutoSuspend: "5m", VCPUs: 2, Memory: 4096, LocalT3Bin: "t3", LocalCodexBin: "codex", LocalT3Port: 3774}
+}
+
 func decodeConfig(r io.Reader) (Config, error) {
-	c := Config{Provider: "codex", Base: "main", AutoSuspend: "5m", VCPUs: 2, Memory: 4096}
+	c := defaultConfig()
 	d := yaml.NewDecoder(r)
 	d.KnownFields(true)
 	if err := d.Decode(&c); err != nil && err != io.EOF {
@@ -57,7 +67,7 @@ func decodeConfig(r io.Reader) (Config, error) {
 }
 
 func loadConfig(path string, env func(string) (string, bool)) (Config, error) {
-	c := Config{Provider: "codex", Base: "main", AutoSuspend: "5m", VCPUs: 2, Memory: 4096}
+	c := defaultConfig()
 	if path != "" {
 		f, err := os.Open(path)
 		if err != nil {
@@ -70,12 +80,12 @@ func loadConfig(path string, env func(string) (string, bool)) (Config, error) {
 		}
 		c = v
 	}
-	for k, p := range map[string]*string{"BACKEND": &c.Backend, "GUEST_BINARY": &c.GuestBinary, "T3_PUBLIC_URL": &c.T3PublicURL, "USER": &c.User, "ORG": &c.Org, "PROVIDER": &c.Provider, "REPO": &c.Repo, "BASE": &c.Base, "AUTO_SUSPEND": &c.AutoSuspend, "SNAPSHOT": &c.Snapshot, "CREDENTIAL_BACKEND": &c.CredentialBackend, "CREDENTIAL_KEY_FILE": &c.CredentialKeyFile} {
+	for k, p := range map[string]*string{"HOST": &c.Host, "BACKEND": &c.Backend, "GUEST_BINARY": &c.GuestBinary, "T3_PUBLIC_URL": &c.T3PublicURL, "USER": &c.User, "ORG": &c.Org, "PROVIDER": &c.Provider, "REPO": &c.Repo, "BASE": &c.Base, "AUTO_SUSPEND": &c.AutoSuspend, "SNAPSHOT": &c.Snapshot, "CREDENTIAL_BACKEND": &c.CredentialBackend, "CREDENTIAL_KEY_FILE": &c.CredentialKeyFile, "LOCAL_REPO_ROOT": &c.LocalRepoRoot, "LOCAL_WORKTREE_ROOT": &c.LocalWorktreeRoot, "LOCAL_T3_BIN": &c.LocalT3Bin, "LOCAL_CODEX_BIN": &c.LocalCodexBin} {
 		if v, ok := env("IB_TICKET_" + k); ok {
 			*p = v
 		}
 	}
-	for k, p := range map[string]*int{"VCPUS": &c.VCPUs, "MEM_MIB": &c.Memory} {
+	for k, p := range map[string]*int{"VCPUS": &c.VCPUs, "MEM_MIB": &c.Memory, "LOCAL_T3_PORT": &c.LocalT3Port} {
 		if v, ok := env("IB_TICKET_" + k); ok {
 			n, e := strconv.Atoi(v)
 			if e != nil {
@@ -96,11 +106,30 @@ func loadConfig(path string, env func(string) (string, bool)) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.Host != "" && c.Host != "instabox" && c.Host != "local" {
+		return errors.New("host must be instabox or local")
+	}
 	if c.Backend != "" && c.Backend != "native" && c.Backend != "t3" {
 		return errors.New("backend must be native or t3")
 	}
 	if c.Backend == "t3" && c.Provider != "codex" {
 		return errors.New("T3 adapter currently supports Codex only; native Claude remains available")
+	}
+	if c.Host == "local" {
+		if c.Backend != "t3" || c.Provider != "codex" {
+			return errors.New("local host requires backend t3 and provider codex")
+		}
+		for name, value := range map[string]string{"local_repo_root": c.LocalRepoRoot, "local_worktree_root": c.LocalWorktreeRoot} {
+			if !filepath.IsAbs(expandHome(value)) {
+				return fmt.Errorf("%s must be an absolute path", name)
+			}
+		}
+		if c.LocalT3Bin == "" || c.LocalCodexBin == "" {
+			return errors.New("local_t3_bin and local_codex_bin are required")
+		}
+		if c.LocalT3Port < 1024 || c.LocalT3Port > 65535 {
+			return errors.New("local_t3_port must be between 1024 and 65535")
+		}
 	}
 	if c.T3PublicURL != "" && !validT3Origin(c.T3PublicURL) {
 		return errors.New("t3_public_url must be an HTTPS origin without a path, credentials or query")

@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -327,8 +326,8 @@ func (r *Runner) recoverT3(t Task, conv string) (Task, error) {
 
 func (i Instabox) FollowT3(ctx context.Context, box, thread, after string) error {
 	cmd := exec.CommandContext(ctx, "instabox", "ssh", box, "--", t3Helper+" t3-guest follow "+quote(thread)+" "+quote(after))
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	configureProcessGroup(cmd)
+	cmd.Cancel = func() error { return killProcessGroup(cmd) }
 	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Run(); err != nil {
 		return errors.New("T3 lifecycle event follower ended; reconcile")
@@ -342,8 +341,8 @@ func (i Instabox) PairT3(box, origin string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "instabox", "ssh", box, "--", t3CLI+" auth pairing create --ttl 5m --base-url "+quote(origin)+" --json")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	configureProcessGroup(cmd)
+	cmd.Cancel = func() error { return killProcessGroup(cmd) }
 	output := &boundedOutput{limit: 16 << 10}
 	cmd.Stdout = output
 	cmd.WaitDelay = 2 * time.Second

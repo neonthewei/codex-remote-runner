@@ -19,6 +19,7 @@ type Runner struct {
 	Secrets     Secrets
 	Supervision string
 	Config      Config
+	Local       LocalControl
 }
 
 var errOwnershipMismatch = errors.New("VM ownership or credential isolation mismatch")
@@ -40,6 +41,9 @@ func (r *Runner) Create(ticket string, c Config, bootstrap bool) (Task, error) {
 	}
 	if e := c.Validate(); e != nil {
 		return Task{}, e
+	}
+	if c.Host == "local" {
+		return r.createLocal(ticket, c)
 	}
 	if c.User == "" || c.Org == "" {
 		return Task{}, errors.New("configure user and org")
@@ -156,6 +160,9 @@ func (r *Runner) Reconcile(ticket string) (Task, error) {
 	return t, r.State.Save(t)
 }
 func (r *Runner) Bootstrap(c Config) (Task, error) {
+	if c.Host == "local" {
+		return Task{}, errors.New("local host uses the existing Codex login; bootstrap is not required")
+	}
 	if e := c.Validate(); e != nil {
 		return Task{}, e
 	}
@@ -279,8 +286,13 @@ func (r *Runner) Run(ticket, prompt, cwd, model string) (StartResult, error) {
 	if strings.TrimSpace(prompt) == "" || len(prompt) > 256*1024 {
 		return result, errors.New("task text must contain 1 to 262144 bytes")
 	}
-	if t, err := r.State.Task(ticket); err == nil && t.Backend == "t3" {
-		return r.runT3(t, prompt, model)
+	if t, err := r.State.Task(ticket); err == nil {
+		if t.Host == "local" {
+			return r.runLocal(t, prompt, model)
+		}
+		if t.Backend == "t3" {
+			return r.runT3(t, prompt, model)
+		}
 	}
 	t, e := r.Activate(ticket)
 	if e != nil {
@@ -351,6 +363,9 @@ func (r *Runner) RecoverTurn(ticket, conv string) (Task, error) {
 	if e != nil {
 		return t, e
 	}
+	if t.Host == "local" {
+		return r.recoverTurnLocal(t, conv)
+	}
 	if _, e = r.owned(t); e != nil {
 		return t, e
 	}
@@ -384,6 +399,9 @@ func (r *Runner) RecoverTurn(ticket, conv string) (Task, error) {
 	return t, errors.New("select a verified existing conversation")
 }
 func (r *Runner) Prepare(ticket, repo, base string) (Task, error) {
+	if t, err := r.State.Task(ticket); err == nil && t.Host == "local" {
+		return r.prepareLocal(t, repo, base)
+	}
 	c := Config{Repo: repo, Base: base, Provider: "codex", VCPUs: 2, Memory: 4096}
 	if !repoPattern.MatchString(repo) {
 		return Task{}, errors.New("repo must be OWNER/REPO")
@@ -420,6 +438,9 @@ func (r *Runner) RecoverPrepare(ticket string) (Task, error) {
 	if e != nil {
 		return t, e
 	}
+	if t.Host == "local" {
+		return r.recoverPrepareLocal(t)
+	}
 	if _, e = r.owned(t); e != nil {
 		return t, e
 	}
@@ -444,6 +465,9 @@ func (r *Runner) Checkpoint(ticket string) (Task, error) {
 	t, e := r.State.Task(ticket)
 	if e != nil {
 		return t, e
+	}
+	if t.Host == "local" {
+		return t, errors.New("local tasks use handoff instead of credential checkpoint")
 	}
 	if t.Backend == "t3" {
 		gate := flock.New(filepath.Join(r.State.Root, "t3-"+t.Ticket+".lock"))
@@ -587,6 +611,9 @@ func (r *Runner) Status(ticket string) (map[string]any, error) {
 	t, e := r.State.Task(ticket)
 	if e != nil {
 		return nil, e
+	}
+	if t.Host == "local" {
+		return r.statusLocal(t)
 	}
 	b, e := r.owned(t)
 	if e != nil {

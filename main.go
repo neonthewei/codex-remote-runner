@@ -27,6 +27,8 @@ Commands:
   init-key                        Generate a private headless-store key (never overwrite)
   bootstrap                       Create dedicated official Codex login VM
   create --task ID                Create one task VM (configurable user/org/size)
+  serve-local ID                  Run one local task's T3 server in the foreground
+  handoff ID --to app|t3          Transfer the local task's single-writer owner
   prepare ID                      Clone configured repository and create task branch
   run ID --prompt-file PATH       Start or resume configured coding agent
   status ID                       Read task and VM status
@@ -138,6 +140,7 @@ func execute(args []string) (any, error) {
 	org := f.String("org", c.Org, "")
 	provider := f.String("provider", c.Provider, "")
 	engine := f.String("backend", c.Backend, "")
+	host := f.String("host", c.Host, "")
 	outputFile := f.String("output-file", "", "")
 	repo := f.String("repo", c.Repo, "")
 	base := f.String("base", c.Base, "")
@@ -152,6 +155,7 @@ func execute(args []string) (any, error) {
 	conv := f.String("conversation", "", "")
 	prURL := f.String("url", "", "")
 	supervision := f.String("supervision", "host", "")
+	owner := f.String("to", "", "")
 	backend := f.String("credential-backend", c.CredentialBackend, "")
 	keyFile := f.String("credential-key-file", c.CredentialKeyFile, "")
 	reordered, e := reorder(args[1:])
@@ -169,6 +173,7 @@ func execute(args []string) (any, error) {
 	c.Org = *org
 	c.Provider = *provider
 	c.Backend = *engine
+	c.Host = *host
 	c.Repo = *repo
 	c.Base = *base
 	c.Snapshot = *snapshot
@@ -194,7 +199,7 @@ func execute(args []string) (any, error) {
 		}
 		return map[string]string{"status": "key-created"}, nil
 	}
-	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true}
+	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true, "serve-local": true, "handoff": true}
 	if !valid[action] {
 		return nil, errors.New("unknown command")
 	}
@@ -206,6 +211,21 @@ func execute(args []string) (any, error) {
 		}
 	} else if len(f.Args()) > 0 {
 		return nil, errors.New("unexpected positional arguments")
+	}
+	if action == "serve-local" {
+		s, err := openState(expandHome(root))
+		if err != nil {
+			return nil, err
+		}
+		task, err := s.Task(ticket)
+		s.Close()
+		if err != nil {
+			return nil, err
+		}
+		if task.Host != "local" {
+			return nil, errors.New("serve-local requires a local task")
+		}
+		return nil, (&localHost{config: c}).Serve(task)
 	}
 	s, e := openState(expandHome(root))
 	if e != nil {
@@ -242,6 +262,8 @@ func execute(args []string) (any, error) {
 		return r.Bootstrap(c)
 	case "status":
 		return r.Status(ticket)
+	case "handoff":
+		return r.HandoffLocal(ticket, *owner)
 	case "activate":
 		return r.Activate(ticket)
 	case "checkpoint":
@@ -255,7 +277,11 @@ func execute(args []string) (any, error) {
 	case "recover-turn":
 		return r.RecoverTurn(ticket, *conv)
 	case "run":
-		if *supervision == "host" && !supervisorPresent(s.Root) {
+		task, taskErr := s.Task(ticket)
+		if taskErr != nil {
+			return nil, taskErr
+		}
+		if task.Host != "local" && *supervision == "host" && !supervisorPresent(s.Root) {
 			return nil, errors.New("start ib-ticket supervise as a persistent host service before run, or explicitly use --supervision external with your own watcher")
 		}
 		if *prompt == "" {

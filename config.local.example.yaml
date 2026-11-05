@@ -1,0 +1,12 @@
+# Copy outside the checkout and replace every path. No credential values.
+host: local
+backend: t3
+user: your-local-profile
+provider: codex
+repo: owner/repo
+base: main
+local_repo_root: C:\path\to\repository
+local_worktree_root: C:\path\to\task-worktrees
+local_t3_bin: C:\Users\you\.local\bin\t3.cmd
+local_codex_bin: C:\path\to\codex.exe
+local_t3_port: 3784

@@ -39,6 +39,12 @@ type Task struct {
 	Base         string `json:"base,omitempty"`
 	Branch       string `json:"branch,omitempty"`
 	Adopted      int    `json:"adopted"`
+	Host         string `json:"host,omitempty"`
+	SourceRoot   string `json:"source_root,omitempty"`
+	Worktree     string `json:"worktree,omitempty"`
+	T3Home       string `json:"t3_home,omitempty"`
+	T3Port       int    `json:"t3_port,omitempty"`
+	Owner        string `json:"owner,omitempty"`
 }
 
 type State struct {
@@ -60,7 +66,7 @@ func openState(root string) (*State, error) {
 	if err != nil {
 		return nil, err
 	}
-	if info.Mode().Perm()&0077 != 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
 		return nil, errors.New("state directory must have mode 0700")
 	}
 	l := flock.New(filepath.Join(root, "controller.lock"))
@@ -81,7 +87,8 @@ CREATE TABLE IF NOT EXISTS profiles(user TEXT PRIMARY KEY,version TEXT NOT NULL)
 CREATE TABLE IF NOT EXISTS tasks(ticket TEXT PRIMARY KEY,user TEXT NOT NULL,provider TEXT NOT NULL,org TEXT NOT NULL,name TEXT UNIQUE NOT NULL,box TEXT UNIQUE,phase TEXT NOT NULL,version TEXT,conversation TEXT,pr TEXT,repo TEXT,base TEXT,branch TEXT,adopted INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS leases(user TEXT PRIMARY KEY,ticket TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS turns(ticket TEXT PRIMARY KEY,conversation TEXT NOT NULL,job TEXT NOT NULL,mode TEXT NOT NULL,status TEXT NOT NULL,note TEXT NOT NULL DEFAULT '');
-CREATE TABLE IF NOT EXISTS t3_tasks(ticket TEXT PRIMARY KEY, model TEXT NOT NULL DEFAULT '', link TEXT NOT NULL DEFAULT '', nonce TEXT NOT NULL DEFAULT '');`)
+CREATE TABLE IF NOT EXISTS t3_tasks(ticket TEXT PRIMARY KEY, model TEXT NOT NULL DEFAULT '', link TEXT NOT NULL DEFAULT '', nonce TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS local_tasks(ticket TEXT PRIMARY KEY,source_root TEXT NOT NULL,worktree TEXT NOT NULL,t3_home TEXT NOT NULL,t3_port INTEGER NOT NULL,owner TEXT NOT NULL);`)
 	if err != nil {
 		return fail(err)
 	}
@@ -110,6 +117,13 @@ func (s *State) Task(ticket string) (Task, error) {
 		if n == 1 {
 			t.Backend = "t3"
 		}
+		err = s.DB.QueryRow("SELECT source_root,worktree,t3_home,t3_port,owner FROM local_tasks WHERE ticket=?", ticket).Scan(&t.SourceRoot, &t.Worktree, &t.T3Home, &t.T3Port, &t.Owner)
+		if err == nil {
+			t.Host = "local"
+		} else if err == sql.ErrNoRows {
+			t.Host = "instabox"
+			err = nil
+		}
 	}
 	return t, err
 }
@@ -121,6 +135,11 @@ func (s *State) Save(t Task) error {
 	defer tx.Rollback()
 	if t.Backend == "t3" {
 		if _, e := tx.Exec("INSERT OR IGNORE INTO t3_tasks(ticket) VALUES(?)", t.Ticket); e != nil {
+			return e
+		}
+	}
+	if t.Host == "local" {
+		if _, e := tx.Exec("INSERT INTO local_tasks(ticket,source_root,worktree,t3_home,t3_port,owner) VALUES(?,?,?,?,?,?) ON CONFLICT(ticket) DO UPDATE SET source_root=excluded.source_root,worktree=excluded.worktree,t3_home=excluded.t3_home,t3_port=excluded.t3_port,owner=excluded.owner", t.Ticket, t.SourceRoot, t.Worktree, t.T3Home, t.T3Port, t.Owner); e != nil {
 			return e
 		}
 	}

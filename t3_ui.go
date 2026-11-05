@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -267,7 +266,7 @@ func (u *t3UI) dial(ctx context.Context, network, address string) (net.Conn, err
 	// A request context does not own a pooled connection. Its lifetime belongs
 	// to Transport; cancellation below only bounds establishing the SSH stream.
 	cmd := exec.Command("instabox", "ssh", t.Box, "--", t3Helper+" t3-guest tunnel")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	configureProcessGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -324,7 +323,7 @@ func (c *t3SSHConn) Close() error {
 		c.in.Close()
 		c.out.Close()
 		if c.cmd.Process != nil {
-			_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
+			_ = killProcessGroup(c.cmd)
 		}
 		_ = c.cmd.Wait()
 	})

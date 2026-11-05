@@ -1,0 +1,364 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type LocalControl interface {
+	Prepare(Task, string, string) error
+	Run(Task, string, string) (StartResult, error)
+	Thread(Task) (map[string]any, error)
+	Online(Task) bool
+	Serve(Task) error
+}
+
+type localHost struct {
+	config Config
+}
+
+func (r *Runner) localControl() LocalControl {
+	if r.Local != nil {
+		return r.Local
+	}
+	return &localHost{config: r.Config}
+}
+
+func (r *Runner) createLocal(ticket string, c Config) (Task, error) {
+	if c.User == "" {
+		return Task{}, errors.New("configure a local Codex profile name")
+	}
+	var exists int
+	if err := r.State.DB.QueryRow("SELECT count(*) FROM tasks WHERE ticket=?", ticket).Scan(&exists); err != nil {
+		return Task{}, err
+	}
+	if exists > 0 {
+		t, err := r.State.Task(ticket)
+		if err != nil {
+			return t, err
+		}
+		if t.Host != "local" || t.User != c.User {
+			return t, errors.New("task already belongs to another host or profile")
+		}
+		return t, nil
+	}
+	root, err := filepath.Abs(expandHome(c.LocalWorktreeRoot))
+	if err != nil {
+		return Task{}, errors.New("cannot resolve local worktree root")
+	}
+	source, err := filepath.Abs(expandHome(c.LocalRepoRoot))
+	if err != nil {
+		return Task{}, errors.New("cannot resolve local repository root")
+	}
+	name := strings.ToLower(ticket) + "-" + r.State.Namespace[:8]
+	worktree := filepath.Join(root, name)
+	if !within(root, worktree) {
+		return Task{}, errors.New("local worktree escaped configured root")
+	}
+	t := Task{Host: "local", Backend: "t3", Ticket: ticket, User: c.User, Provider: "codex", Org: "local", Name: name, Phase: "created", SourceRoot: source, Worktree: worktree, T3Home: filepath.Join(r.State.Root, "local-t3", ticket), T3Port: c.LocalT3Port, Owner: "t3"}
+	if err = r.State.Save(t); err != nil {
+		return t, err
+	}
+	return t, nil
+}
+
+func within(root, target string) bool {
+	rel, err := filepath.Rel(root, target)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+func (r *Runner) prepareLocal(t Task, repo, base string) (Task, error) {
+	if t.Repo != "" {
+		if t.Repo != repo || t.Base != base {
+			return t, errors.New("task already owns another repo or base")
+		}
+		if t.Phase == "active" {
+			return t, nil
+		}
+		return t, errors.New("local preparation is uncertain; run recover-prepare")
+	}
+	t.Repo = repo
+	t.Base = base
+	t.Branch = strings.ToLower(t.Ticket) + "-agent"
+	t.Phase = "preparing"
+	if err := r.State.Save(t); err != nil {
+		return t, err
+	}
+	if err := r.localControl().Prepare(t, base, t.Branch); err != nil {
+		return t, err
+	}
+	t.Phase = "active"
+	return t, r.State.Save(t)
+}
+
+func (r *Runner) recoverPrepareLocal(t Task) (Task, error) {
+	if t.Phase != "preparing" || t.Repo == "" || t.Branch == "" {
+		return t, errors.New("task is not awaiting local preparation recovery")
+	}
+	out, err := exec.Command("git", "-C", t.Worktree, "branch", "--show-current").Output()
+	if err != nil || strings.TrimSpace(string(out)) != t.Branch {
+		return t, errors.New("local worktree does not match recorded task branch")
+	}
+	t.Phase = "active"
+	return t, r.State.Save(t)
+}
+
+func (r *Runner) runLocal(t Task, prompt, model string) (StartResult, error) {
+	var result StartResult
+	if t.Phase != "active" {
+		return result, errors.New("local task needs recovery before execution")
+	}
+	if t.Owner != "t3" {
+		return result, errors.New("local task is owned by the Codex app; hand it back to t3 before running")
+	}
+	if !r.localControl().Online(t) {
+		return result, errors.New("local T3 server is offline; run serve-local for this task")
+	}
+	if err := r.State.Acquire(t.User, t.Ticket); err != nil {
+		return result, err
+	}
+	t.Phase = "starting-turn"
+	if err := r.State.Save(t); err != nil {
+		return result, err
+	}
+	if _, err := r.State.DB.Exec("INSERT INTO turns(ticket,conversation,job,mode,status) VALUES(?,?,?,'local','uncertain') ON CONFLICT(ticket) DO UPDATE SET conversation=excluded.conversation,job='',mode='local',status='uncertain',note=''", t.Ticket, t.Conversation, ""); err != nil {
+		return result, err
+	}
+	result, err := r.localControl().Run(t, prompt, model)
+	if err != nil {
+		return result, err
+	}
+	if result.ID == "" || result.Job == "" {
+		return result, errors.New("local T3 start response missing thread or run; reconcile before retrying")
+	}
+	t.Conversation = result.ID
+	t.Phase = "active"
+	if err = r.State.Save(t); err != nil {
+		return result, err
+	}
+	_, err = r.State.DB.Exec("UPDATE turns SET conversation=?,job=?,status='active',note='' WHERE ticket=?", result.ID, result.Job, t.Ticket)
+	return result, err
+}
+
+func (r *Runner) recoverTurnLocal(t Task, conversation string) (Task, error) {
+	if t.Phase != "starting-turn" || conversation == "" || (t.Conversation != "" && t.Conversation != conversation) {
+		return t, errors.New("select the original local T3 thread for the uncertain turn")
+	}
+	if !r.localControl().Online(t) {
+		return t, errors.New("local T3 server is offline; start it before recovery")
+	}
+	selected := t
+	selected.Conversation = conversation
+	value, err := r.localControl().Thread(selected)
+	if err != nil {
+		return t, err
+	}
+	thread, ok := value["thread"].(map[string]any)
+	if !ok || thread["threadId"] != conversation || thread["providerInstanceId"] != "codex" {
+		return t, errors.New("selected local T3 thread does not match the Codex task")
+	}
+	job, _ := thread["latestRunId"].(string)
+	if job == "" {
+		return t, errors.New("selected local T3 thread has no verifiable run")
+	}
+	t.Conversation = conversation
+	t.Phase = "active"
+	if err = r.State.Save(t); err != nil {
+		return t, err
+	}
+	_, err = r.State.DB.Exec("UPDATE turns SET conversation=?,job=?,status='active',note='' WHERE ticket=?", conversation, job, t.Ticket)
+	return t, err
+}
+
+func (r *Runner) statusLocal(t Task) (map[string]any, error) {
+	result := map[string]any{"task": t, "t3_online": r.localControl().Online(t), "owner": t.Owner, "worktree": t.Worktree}
+	if !result["t3_online"].(bool) || t.Conversation == "" {
+		return result, nil
+	}
+	thread, err := r.localControl().Thread(t)
+	if err != nil {
+		result["thread_unavailable"] = true
+		return result, nil
+	}
+	result["thread"] = thread
+	return result, nil
+}
+
+func (r *Runner) ServeLocal(ticket string) error {
+	t, err := r.State.Task(ticket)
+	if err != nil {
+		return err
+	}
+	if t.Host != "local" {
+		return errors.New("serve-local requires a local task")
+	}
+	return r.localControl().Serve(t)
+}
+
+func (r *Runner) HandoffLocal(ticket, owner string) (Task, error) {
+	t, err := r.State.Task(ticket)
+	if err != nil {
+		return t, err
+	}
+	if t.Host != "local" {
+		return t, errors.New("handoff requires a local task")
+	}
+	if owner != "app" && owner != "t3" {
+		return t, errors.New("handoff target must be app or t3")
+	}
+	online := r.localControl().Online(t)
+	if owner == "app" && online {
+		return t, errors.New("stop serve-local before handing the single writer to the Codex app")
+	}
+	if owner == "t3" && !online {
+		return t, errors.New("start serve-local before handing the single writer to T3")
+	}
+	t.Owner = owner
+	return t, r.State.Save(t)
+}
+
+func (l *localHost) Prepare(t Task, base, branch string) error {
+	root, err := filepath.Abs(expandHome(l.config.LocalWorktreeRoot))
+	if err != nil || !within(root, t.Worktree) {
+		return errors.New("local worktree escaped configured root")
+	}
+	if _, err := os.Stat(t.Worktree); !os.IsNotExist(err) {
+		return errors.New("local worktree path already exists")
+	}
+	if err := runLocalCommand(nil, "git", "-C", t.SourceRoot, "fetch", "origin", base); err != nil {
+		return errors.New("cannot fetch configured local base")
+	}
+	if err := os.MkdirAll(filepath.Dir(t.Worktree), 0700); err != nil {
+		return err
+	}
+	if err := runLocalCommand(nil, "git", "-C", t.SourceRoot, "worktree", "add", "-b", branch, t.Worktree, "origin/"+base); err != nil {
+		return errors.New("cannot create local task worktree")
+	}
+	return nil
+}
+
+func (l *localHost) Run(t Task, prompt, model string) (StartResult, error) {
+	var result StartResult
+	if t.Conversation == "" {
+		if model == "" {
+			return result, errors.New("first local T3 run requires --model")
+		}
+		if err := l.ensureProject(t); err != nil {
+			return result, err
+		}
+		raw, err := l.t3(strings.NewReader(prompt), t, "thread", "start", "--base-dir", t.T3Home, "--provider", "codex", "--model", model, "--title", t.Ticket, "--json", t.Worktree, "-")
+		if err != nil {
+			return result, err
+		}
+		return decodeLocalStart(raw)
+	}
+	raw, err := l.t3(strings.NewReader(prompt), t, "thread", "send", "--base-dir", t.T3Home, "--json", t.Conversation, "-")
+	if err != nil {
+		return result, err
+	}
+	return decodeLocalStart(raw)
+}
+
+func decodeLocalStart(raw []byte) (StartResult, error) {
+	var value struct {
+		Thread string `json:"threadId"`
+		Run    string `json:"runId"`
+	}
+	if json.Unmarshal(raw, &value) != nil || value.Thread == "" || value.Run == "" {
+		return StartResult{}, errors.New("unexpected local T3 response; reconcile before retrying")
+	}
+	return StartResult{ID: value.Thread, Job: value.Run}, nil
+}
+
+func (l *localHost) Thread(t Task) (map[string]any, error) {
+	raw, err := l.t3(nil, t, "thread", "show", "--base-dir", t.T3Home, "--messages", "4", "--json", t.Conversation)
+	if err != nil {
+		return nil, err
+	}
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil {
+		return nil, errors.New("unexpected local T3 status")
+	}
+	return value, nil
+}
+
+func (l *localHost) Online(t Task) bool {
+	client := http.Client{Timeout: 750 * time.Millisecond}
+	response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/.well-known/t3/environment", t.T3Port))
+	if err != nil {
+		return false
+	}
+	response.Body.Close()
+	return response.StatusCode >= 200 && response.StatusCode < 300
+}
+
+func (l *localHost) Serve(t Task) error {
+	if err := os.MkdirAll(t.T3Home, 0700); err != nil {
+		return err
+	}
+	cmd := exec.Command(l.config.LocalT3Bin, "serve", "--host", "127.0.0.1", "--port", fmt.Sprint(t.T3Port), "--base-dir", t.T3Home)
+	cmd.Dir = t.Worktree
+	cmd.Env = localEnvironment(l.config)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (l *localHost) ensureProject(t Task) error {
+	_, err := l.t3(nil, t, "thread", "list", "--base-dir", t.T3Home, "--project", t.Worktree, "--json")
+	if err == nil {
+		return nil
+	}
+	_, err = l.t3(nil, t, "project", "add", "--base-dir", t.T3Home, "--title", t.Ticket, t.Worktree)
+	if err != nil {
+		return errors.New("cannot register local worktree with T3")
+	}
+	return nil
+}
+
+func (l *localHost) t3(input io.Reader, t Task, args ...string) ([]byte, error) {
+	cmd := exec.Command(l.config.LocalT3Bin, args...)
+	cmd.Dir = t.Worktree
+	cmd.Env = localEnvironment(l.config)
+	cmd.Stdin = input
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, errors.New("local T3 operation failed; inspect the task privately")
+	}
+	return stdout.Bytes(), nil
+}
+
+func localEnvironment(c Config) []string {
+	env := os.Environ()
+	if filepath.IsAbs(c.LocalCodexBin) {
+		dir := filepath.Dir(c.LocalCodexBin)
+		for index, value := range env {
+			if strings.HasPrefix(strings.ToUpper(value), "PATH=") {
+				env[index] = "PATH=" + dir + string(os.PathListSeparator) + value[len("PATH="):]
+				return env
+			}
+		}
+		env = append(env, "PATH="+dir)
+	}
+	return env
+}
+
+func runLocalCommand(input io.Reader, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = input
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run()
+}
