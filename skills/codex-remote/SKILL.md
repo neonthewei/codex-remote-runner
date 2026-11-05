@@ -36,6 +36,25 @@ with `stop-task TASK`; never kill a PID that was not verified through the worker
 If a request or SSH connection ends ambiguously, inspect state and use the
 documented recovery path; never replay the prompt.
 
+For a user-testable web build, keep `serve-web TASK --mode production` under the
+bot host's persistent service manager. Poll `web-status TASK --path /JOURNEY`
+until it reports `online`, then return its public Cloudflare HTTPS URL. Read
+bounded failures with `web-logs`; use `web-inspect --output-file PRIVATE.png` for
+a screenshot, console exceptions and failed network requests. Never report only
+localhost, Tailscale or an unverified tunnel URL. Stop the exact task with
+`stop-web`. Production is the default. Run `prepare-preview` and use preview mode
+only when the user explicitly requests a Supabase preview.
+
+Native App collaboration uses supported app-server operations. Stop T3 before
+`adopt-thread TASK --thread-id ID`; the thread must be idle and belong to the
+exact task worktree. Continue it with `app-run`. Use `--full-access=true` only
+when the user explicitly authorizes that trust level. `archive-task`,
+`unarchive-task`, `pin-task`, `unpin-task`, `list-projects` and `project-task`
+operate on the recorded native thread. `create-app-thread` creates a native
+collaborative thread and `rename-task` sets its App title. Never steal an active
+App writer; ask the user to release it before adoption. Do not guess project or
+thread IDs.
+
 For `host: local` on Windows, use the Windows local bot self-install procedure.
 Inspect existing paths, tasks and Tailscale mappings before running
 `deploy/bootstrap-local-windows.ps1`. Local mode uses the signed-in host's Codex

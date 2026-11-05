@@ -30,8 +30,28 @@ Commands:
   create --task ID                Create one task VM (configurable user/org/size)
   serve-task ID                   Run one worktree task's T3 server in the foreground
   stop-task ID                    Stop one managed Windows task's T3 server
+  serve-web ID --mode production|preview
+                                  Run the task's public Cloudflare web service
+  web-status ID [--path /journey] Verify public HTTPS root and journey
+  web-logs ID [--tail 200]        Read bounded dev server and tunnel logs
+  web-inspect ID --path / --output-file PATH
+                                  Capture screenshot and browser failures
+  stop-web ID                     Stop the managed public web service
+  prepare-preview ID              Explicitly prepare a Supabase preview
   serve-local ID                  Compatibility alias for serve-task
   handoff ID --to app|t3          Transfer the local task's single-writer owner
+  archive-task ID                 Archive the task's Codex App thread
+  unarchive-task ID               Restore the task's archived Codex App thread
+  pin-task ID                     Move the Codex App thread into Pinned
+  unpin-task ID                   Remove the Codex App thread from Pinned
+  list-projects ID                List Codex App projects visible on the task host
+  project-task ID --project-id ID Assign the Codex App thread to a project
+  project-task ID --clear         Remove the Codex App project assignment
+  rename-task ID --title TEXT     Rename the Codex App thread
+  adopt-thread ID --thread-id ID  Bind an idle native App thread in this worktree
+  create-app-thread ID --title TEXT [--project-id ID]
+                                  Create a native App thread for collaboration
+  app-run ID --prompt-file PATH   Continue an adopted native App thread
   prepare ID                      Clone configured repository and create task branch
   run ID --prompt-file PATH       Start or resume configured coding agent
   status ID                       Read task and VM status
@@ -161,6 +181,14 @@ func execute(args []string) (any, error) {
 	prURL := f.String("url", "", "")
 	supervision := f.String("supervision", "host", "")
 	owner := f.String("to", "", "")
+	projectID := f.String("project-id", "", "")
+	clearProject := f.Bool("clear", false, "")
+	threadID := f.String("thread-id", "", "")
+	fullAccess := f.Bool("full-access", false, "")
+	webMode := f.String("mode", "production", "")
+	webPath := f.String("path", "/", "")
+	webTail := f.Int("tail", 200, "")
+	title := f.String("title", "", "")
 	backend := f.String("credential-backend", c.CredentialBackend, "")
 	keyFile := f.String("credential-key-file", c.CredentialKeyFile, "")
 	reordered, e := reorder(args[1:])
@@ -204,7 +232,7 @@ func execute(args []string) (any, error) {
 		}
 		return map[string]string{"status": "key-created"}, nil
 	}
-	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true, "serve-task": true, "stop-task": true, "serve-local": true, "handoff": true}
+	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true, "serve-task": true, "stop-task": true, "serve-local": true, "handoff": true, "archive-task": true, "unarchive-task": true, "pin-task": true, "unpin-task": true, "list-projects": true, "project-task": true, "rename-task": true, "adopt-thread": true, "create-app-thread": true, "app-run": true, "serve-web": true, "web-status": true, "web-logs": true, "web-inspect": true, "stop-web": true, "prepare-preview": true}
 	if !valid[action] {
 		return nil, errors.New("unknown command")
 	}
@@ -234,6 +262,24 @@ func execute(args []string) (any, error) {
 			return nil, (&windowsHost{config: c}).Serve(task)
 		}
 		return nil, (&localHost{config: c}).Serve(task)
+	}
+	if action == "serve-web" {
+		if *webMode != "production" && *webMode != "preview" {
+			return nil, errors.New("serve-web mode must be production or preview")
+		}
+		s, err := openState(expandHome(root))
+		if err != nil {
+			return nil, err
+		}
+		task, err := s.Task(ticket)
+		s.Close()
+		if err != nil {
+			return nil, err
+		}
+		if task.Host != "windows" || task.Phase != "active" {
+			return nil, errors.New("serve-web requires an active Windows worktree task")
+		}
+		return nil, (&windowsHost{config: c}).ServeWeb(task, *webMode)
 	}
 	s, e := openState(expandHome(root))
 	if e != nil {
@@ -272,8 +318,56 @@ func execute(args []string) (any, error) {
 		return r.Status(ticket)
 	case "stop-task":
 		return map[string]string{"status": "stopped"}, r.StopTask(ticket)
+	case "prepare-preview":
+		return r.PreparePreview(ticket)
+	case "web-status":
+		return r.WebStatus(ticket, *webPath)
+	case "web-logs":
+		return r.WebLogs(ticket, *webTail)
+	case "web-inspect":
+		return r.WebInspect(ticket, *webPath, *outputFile)
+	case "stop-web":
+		return map[string]string{"status": "stopped"}, r.StopWeb(ticket)
 	case "handoff":
 		return r.HandoffLocal(ticket, *owner)
+	case "archive-task", "unarchive-task", "pin-task", "unpin-task", "list-projects":
+		return r.ManageCodexAppTask(ticket, action, "")
+	case "project-task":
+		if *clearProject == (*projectID != "") {
+			return nil, errors.New("project-task requires exactly one of --project-id or --clear")
+		}
+		if *projectID != "" {
+			if err := validID(*projectID); err != nil {
+				return nil, errors.New("invalid Codex App project ID")
+			}
+		}
+		return r.ManageCodexAppTask(ticket, action, *projectID)
+	case "rename-task":
+		return r.ManageCodexAppTask(ticket, action, *title)
+	case "adopt-thread":
+		if strings.TrimSpace(*threadID) == "" {
+			return nil, errors.New("adopt-thread requires --thread-id")
+		}
+		return r.AdoptCodexAppThread(ticket, *threadID)
+	case "create-app-thread":
+		if *projectID != "" {
+			if err := validID(*projectID); err != nil {
+				return nil, errors.New("invalid Codex App project ID")
+			}
+		}
+		return r.CreateCodexAppThread(ticket, *title, *projectID)
+	case "app-run":
+		if *prompt == "" {
+			return nil, errors.New("provide a private task-text file using --prompt-file")
+		}
+		raw, readErr := os.ReadFile(expandHome(*prompt))
+		if readErr != nil {
+			return nil, errors.New("cannot read task-text file")
+		}
+		if len(raw) == 0 || len(raw) > 256*1024 {
+			return nil, errors.New("task text must contain 1 to 262144 bytes")
+		}
+		return r.RunCodexAppThread(ticket, string(raw), *fullAccess)
 	case "activate":
 		return r.Activate(ticket)
 	case "checkpoint":

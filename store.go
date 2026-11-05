@@ -45,6 +45,7 @@ type Task struct {
 	T3Home       string `json:"t3_home,omitempty"`
 	T3Port       int    `json:"t3_port,omitempty"`
 	Owner        string `json:"owner,omitempty"`
+	AppThread    string `json:"app_thread,omitempty"`
 }
 
 type State struct {
@@ -93,6 +94,9 @@ CREATE TABLE IF NOT EXISTS windows_tasks(ticket TEXT PRIMARY KEY,source_root TEX
 	if err != nil {
 		return fail(err)
 	}
+	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS codex_app_tasks(ticket TEXT PRIMARY KEY,thread_id TEXT NOT NULL);`); err != nil {
+		return fail(err)
+	}
 	if err = os.Chmod(filepath.Join(root, "state.db"), 0600); err != nil {
 		return fail(err)
 	}
@@ -130,6 +134,12 @@ func (s *State) Task(ticket string) (Task, error) {
 				err = nil
 			}
 		}
+		if err == nil {
+			appErr := s.DB.QueryRow("SELECT thread_id FROM codex_app_tasks WHERE ticket=?", ticket).Scan(&t.AppThread)
+			if appErr != nil && appErr != sql.ErrNoRows {
+				err = appErr
+			}
+		}
 	}
 	return t, err
 }
@@ -151,6 +161,11 @@ func (s *State) Save(t Task) error {
 	}
 	if t.Host == "windows" {
 		if _, e := tx.Exec("INSERT INTO windows_tasks(ticket,source_root,worktree,t3_home,t3_port,owner) VALUES(?,?,?,?,?,?) ON CONFLICT(ticket) DO UPDATE SET source_root=excluded.source_root,worktree=excluded.worktree,t3_home=excluded.t3_home,t3_port=excluded.t3_port,owner=excluded.owner", t.Ticket, t.SourceRoot, t.Worktree, t.T3Home, t.T3Port, t.Owner); e != nil {
+			return e
+		}
+	}
+	if t.AppThread != "" {
+		if _, e := tx.Exec("INSERT INTO codex_app_tasks(ticket,thread_id) VALUES(?,?) ON CONFLICT(ticket) DO UPDATE SET thread_id=excluded.thread_id", t.Ticket, t.AppThread); e != nil {
 			return e
 		}
 	}

@@ -16,6 +16,10 @@ param(
     [string]$SetupExecutablePath,
     [string[]]$SetupArguments = @(),
     [string[]]$SetupPathEntries = @(),
+    [string]$WorkspaceExecutablePath,
+    [string[]]$WorkspaceArguments = @(),
+    [string[]]$WorkspacePathEntries = @(),
+    [string]$BrowserExecutablePath,
     [string]$OpenSSHMSIPath,
     [string]$TailscaleIPv4Range = '100.64.0.0/10'
 )
@@ -73,6 +77,23 @@ if ($SetupExecutablePath) {
     }
 }
 
+if (!$WorkspaceExecutablePath -and ($WorkspaceArguments.Count -gt 0 -or $WorkspacePathEntries.Count -gt 0)) {
+    throw 'Workspace arguments and PATH entries require WorkspaceExecutablePath.'
+}
+$resolvedWorkspacePaths = @()
+if ($WorkspaceExecutablePath) {
+    if (!(Test-Path -LiteralPath $WorkspaceExecutablePath -PathType Leaf)) { throw "Workspace executable is missing: $WorkspaceExecutablePath" }
+    $WorkspaceExecutablePath = (Resolve-Path -LiteralPath $WorkspaceExecutablePath).Path
+    foreach ($pathEntry in $WorkspacePathEntries) {
+        if (!(Test-Path -LiteralPath $pathEntry -PathType Container)) { throw "Workspace PATH entry is missing: $pathEntry" }
+        $resolvedWorkspacePaths += (Resolve-Path -LiteralPath $pathEntry).Path.Replace('\', '/')
+    }
+}
+if ($BrowserExecutablePath) {
+    if (!(Test-Path -LiteralPath $BrowserExecutablePath -PathType Leaf)) { throw "Browser executable is missing: $BrowserExecutablePath" }
+    $BrowserExecutablePath = (Resolve-Path -LiteralPath $BrowserExecutablePath).Path
+}
+
 $capability = Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0'
 if ($capability.State -ne 'Installed') {
     Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' | Out-Null
@@ -116,6 +137,8 @@ try {
 }
 
 $setupExecutablePolicyPath = if ($SetupExecutablePath) { $SetupExecutablePath.Replace('\', '/') } else { '' }
+$workspaceExecutablePolicyPath = if ($WorkspaceExecutablePath) { $WorkspaceExecutablePath.Replace('\', '/') } else { '' }
+$browserExecutablePolicyPath = if ($BrowserExecutablePath) { $BrowserExecutablePath.Replace('\', '/') } else { '' }
 $policy = [ordered]@{
     repo_root = $RepoRoot.Replace('\', '/')
     worktree_root = $WorktreeRoot.Replace('\', '/')
@@ -125,6 +148,10 @@ $policy = [ordered]@{
     setup_bin = $setupExecutablePolicyPath
     setup_args = @($SetupArguments)
     setup_paths = @($resolvedSetupPaths)
+    workspace_bin = $workspaceExecutablePolicyPath
+    workspace_args = @($WorkspaceArguments)
+    workspace_paths = @($resolvedWorkspacePaths)
+    browser_bin = $browserExecutablePolicyPath
     t3_port = if ($usingLegacyPort) { $T3Port } else { 0 }
     t3_port_start = $T3PortStart
     t3_port_end = $T3PortEnd
@@ -172,13 +199,17 @@ $sshdConfig = Join-Path $sshdDirectory 'sshd_config'
 New-Item -ItemType Directory -Force -Path $sshdDirectory | Out-Null
 New-Item -ItemType Directory -Force -Path $sshdLogs | Out-Null
 foreach ($directory in @($sshdDirectory, $sshdLogs)) {
-    & icacls.exe $directory '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '/grant' '*S-1-5-32-544:(OI)(CI)F' '/grant' '*S-1-5-11:(OI)(CI)RX' | Out-Null
+    & icacls.exe $directory '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '/grant' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "could not secure OpenSSH directory: $directory" }
 }
 if (!(Test-Path -LiteralPath $sshdConfig)) {
     $defaultConfig = Join-Path $openSshRoot 'sshd_config_default'
     if (!(Test-Path -LiteralPath $defaultConfig)) { throw 'OpenSSH default configuration is missing' }
     Copy-Item -LiteralPath $defaultConfig -Destination $sshdConfig
+}
+Get-ChildItem -LiteralPath $sshdDirectory -Filter 'ssh_host_*_key' -File -ErrorAction SilentlyContinue | ForEach-Object {
+    & icacls.exe $_.FullName '/inheritance:r' '/grant:r' '*S-1-5-18:F' '/grant' '*S-1-5-32-544:F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "could not secure OpenSSH host key: $($_.FullName)" }
 }
 & $sshKeygen -A
 if ($LASTEXITCODE -ne 0) { throw 'OpenSSH host-key initialization failed' }

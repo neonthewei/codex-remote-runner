@@ -16,6 +16,14 @@ import (
 
 type LocalControl interface {
 	Health() (map[string]string, error)
+	Archive(Task, bool) (any, error)
+	Pin(Task, bool) (any, error)
+	Project(Task, string) (any, error)
+	Rename(Task, string) (any, error)
+	Projects(Task) (any, error)
+	Adopt(Task, string) (any, error)
+	CreateAppThread(Task, string, string) (string, error)
+	AppRun(Task, string, bool) (StartResult, error)
 	Prepare(Task, string, string) error
 	Run(Task, string, string) (StartResult, error)
 	Thread(Task) (map[string]any, error)
@@ -23,6 +31,12 @@ type LocalControl interface {
 	Online(Task) bool
 	Serve(Task) error
 	Stop(Task) error
+	PreparePreview(Task) error
+	ServeWeb(Task, string) error
+	WebStatus(Task, string) (map[string]any, error)
+	StopWeb(Task) error
+	WebLogs(Task, int) (map[string]any, error)
+	WebInspect(Task, string) (webInspection, error)
 	Branch(Task) (string, error)
 }
 
@@ -35,6 +49,38 @@ type localHost struct {
 
 func (l *localHost) Health() (map[string]string, error) {
 	return map[string]string{"status": "ready"}, nil
+}
+
+func (l *localHost) Archive(task Task, archived bool) (any, error) {
+	return manageCodexAppArchive(l.config, task, archived)
+}
+
+func (l *localHost) Pin(task Task, pinned bool) (any, error) {
+	return manageCodexAppPin(l.config, task, pinned)
+}
+
+func (l *localHost) Project(task Task, projectID string) (any, error) {
+	return manageCodexAppProject(l.config, task, projectID)
+}
+
+func (l *localHost) Rename(task Task, title string) (any, error) {
+	return manageCodexAppName(l.config, task, title)
+}
+
+func (l *localHost) Projects(task Task) (any, error) {
+	return listCodexAppProjects(l.config, task)
+}
+
+func (l *localHost) Adopt(task Task, threadID string) (any, error) {
+	return adoptCodexAppThread(l.config, task, threadID)
+}
+
+func (l *localHost) CreateAppThread(task Task, title, projectID string) (string, error) {
+	return createCodexAppThread(l.config, task, title, projectID)
+}
+
+func (l *localHost) AppRun(task Task, prompt string, fullAccess bool) (StartResult, error) {
+	return runCodexAppTurn(l.config, task, prompt, fullAccess)
 }
 
 const localGitCommandTimeout = 2 * time.Minute
@@ -356,6 +402,87 @@ func (r *Runner) StopTask(ticket string) error {
 	return r.localControl().Stop(t)
 }
 
+func (r *Runner) ManageCodexAppTask(ticket, action, projectID string) (any, error) {
+	task, err := r.State.Task(ticket)
+	if err != nil {
+		return nil, err
+	}
+	if !isWorktreeHost(task.Host) {
+		return nil, errors.New("Codex App task management requires a worktree task")
+	}
+	switch action {
+	case "archive-task":
+		return r.localControl().Archive(task, true)
+	case "unarchive-task":
+		return r.localControl().Archive(task, false)
+	case "pin-task":
+		return r.localControl().Pin(task, true)
+	case "unpin-task":
+		return r.localControl().Pin(task, false)
+	case "project-task":
+		return r.localControl().Project(task, projectID)
+	case "rename-task":
+		return r.localControl().Rename(task, projectID)
+	case "list-projects":
+		return r.localControl().Projects(task)
+	default:
+		return nil, errors.New("unsupported Codex App task operation")
+	}
+}
+
+func (r *Runner) AdoptCodexAppThread(ticket, threadID string) (Task, error) {
+	task, err := r.State.Task(ticket)
+	if err != nil {
+		return task, err
+	}
+	if !isWorktreeHost(task.Host) || task.Phase != "active" {
+		return task, errors.New("adopt-thread requires an active worktree task")
+	}
+	if r.localControl().Online(task) {
+		return task, errors.New("stop serve-task before adopting a Codex App thread")
+	}
+	if _, err = r.localControl().Adopt(task, threadID); err != nil {
+		return task, err
+	}
+	task.AppThread = threadID
+	task.Owner = "app"
+	return task, r.State.Save(task)
+}
+
+func (r *Runner) CreateCodexAppThread(ticket, title, projectID string) (Task, error) {
+	task, err := r.State.Task(ticket)
+	if err != nil {
+		return task, err
+	}
+	if !isWorktreeHost(task.Host) || task.Phase != "active" || task.AppThread != "" {
+		return task, errors.New("create-app-thread requires an active task without a recorded App thread")
+	}
+	if r.localControl().Online(task) {
+		return task, errors.New("stop serve-task before creating a native Codex App thread")
+	}
+	threadID, err := r.localControl().CreateAppThread(task, title, projectID)
+	if err != nil {
+		return task, err
+	}
+	task.AppThread = threadID
+	task.Owner = "app"
+	return task, r.State.Save(task)
+}
+
+func (r *Runner) RunCodexAppThread(ticket, prompt string, fullAccess bool) (StartResult, error) {
+	task, err := r.State.Task(ticket)
+	if err != nil {
+		return StartResult{}, err
+	}
+	if !isWorktreeHost(task.Host) || task.Phase != "active" || task.Owner != "app" || task.AppThread == "" {
+		return StartResult{}, errors.New("app-run requires an adopted active Codex App thread")
+	}
+	if r.localControl().Online(task) {
+		return StartResult{}, errors.New("stop serve-task before running an adopted Codex App thread")
+	}
+	return r.localControl().AppRun(task, prompt, fullAccess)
+}
+
 func (r *Runner) HandoffLocal(ticket, owner string) (Task, error) {
 	t, err := r.State.Task(ticket)
 	if err != nil {
@@ -502,6 +629,30 @@ func (l *localHost) Serve(t Task) error {
 
 func (l *localHost) Stop(Task) error {
 	return errors.New("managed stop is not available for this local host")
+}
+
+func (l *localHost) PreparePreview(Task) error {
+	return errors.New("workspace actions are not configured for this local host")
+}
+
+func (l *localHost) ServeWeb(Task, string) error {
+	return errors.New("workspace actions are not configured for this local host")
+}
+
+func (l *localHost) WebStatus(Task, string) (map[string]any, error) {
+	return nil, errors.New("workspace actions are not configured for this local host")
+}
+
+func (l *localHost) StopWeb(Task) error {
+	return errors.New("workspace actions are not configured for this local host")
+}
+
+func (l *localHost) WebLogs(Task, int) (map[string]any, error) {
+	return nil, errors.New("workspace actions are not configured for this local host")
+}
+
+func (l *localHost) WebInspect(Task, string) (webInspection, error) {
+	return webInspection{}, errors.New("browser inspection is not configured for this local host")
 }
 
 func (l *localHost) Branch(t Task) (string, error) {

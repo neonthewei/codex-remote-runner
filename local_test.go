@@ -23,6 +23,8 @@ type fakeLocalControl struct {
 	result        StartResult
 	thread        map[string]any
 	pairing       string
+	managed       string
+	projectID     string
 }
 
 func (f *fakeLocalControl) Health() (map[string]string, error) {
@@ -35,6 +37,53 @@ func (f *fakeLocalControl) Health() (map[string]string, error) {
 		status = "ready"
 	}
 	return map[string]string{"status": status}, nil
+}
+
+func (f *fakeLocalControl) Archive(_ Task, archived bool) (any, error) {
+	if archived {
+		f.managed = "archived"
+	} else {
+		f.managed = "active"
+	}
+	return map[string]string{"status": f.managed}, nil
+}
+
+func (f *fakeLocalControl) Pin(_ Task, pinned bool) (any, error) {
+	if pinned {
+		f.managed = "pinned"
+	} else {
+		f.managed = "unpinned"
+	}
+	return map[string]string{"status": f.managed}, nil
+}
+
+func (f *fakeLocalControl) Project(_ Task, projectID string) (any, error) {
+	f.managed = "project-updated"
+	f.projectID = projectID
+	return map[string]string{"status": f.managed, "project_id": projectID}, nil
+}
+
+func (f *fakeLocalControl) Rename(_ Task, title string) (any, error) {
+	f.managed = "renamed"
+	f.projectID = title
+	return map[string]string{"status": f.managed, "title": title}, nil
+}
+
+func (f *fakeLocalControl) Projects(Task) (any, error) {
+	return map[string]any{"projects": []any{}}, nil
+}
+
+func (f *fakeLocalControl) Adopt(_ Task, threadID string) (any, error) {
+	f.projectID = threadID
+	return map[string]string{"status": "adopted", "thread_id": threadID}, nil
+}
+
+func (f *fakeLocalControl) CreateAppThread(Task, string, string) (string, error) {
+	return "created-native-thread", nil
+}
+
+func (f *fakeLocalControl) AppRun(task Task, _ string, _ bool) (StartResult, error) {
+	return StartResult{ID: task.AppThread, Job: "app-turn"}, nil
 }
 
 func (f *fakeLocalControl) Prepare(Task, string, string) error {
@@ -73,6 +122,33 @@ func (f *fakeLocalControl) Stop(Task) error {
 	f.stopped = true
 	f.online = false
 	return nil
+}
+
+func (f *fakeLocalControl) PreparePreview(Task) error {
+	f.managed = "preview-prepared"
+	return nil
+}
+
+func (f *fakeLocalControl) ServeWeb(Task, string) error {
+	f.managed = "web-served"
+	return nil
+}
+
+func (f *fakeLocalControl) WebStatus(Task, string) (map[string]any, error) {
+	return map[string]any{"status": "online", "url": "https://example.trycloudflare.com"}, nil
+}
+
+func (f *fakeLocalControl) StopWeb(Task) error {
+	f.managed = "web-stopped"
+	return nil
+}
+
+func (f *fakeLocalControl) WebLogs(Task, int) (map[string]any, error) {
+	return map[string]any{"lines": []string{"ready"}}, nil
+}
+
+func (f *fakeLocalControl) WebInspect(Task, string) (webInspection, error) {
+	return webInspection{URL: "https://example.trycloudflare.com", Screenshot: []byte("png")}, nil
 }
 
 func (f *fakeLocalControl) Branch(t Task) (string, error) {
@@ -140,6 +216,100 @@ func TestLocalLifecycleAndSingleWriterHandoff(t *testing.T) {
 	status, err := r.Status(task.Ticket)
 	if err != nil || status["t3_online"] != true || status["thread"] == nil {
 		t.Fatal(status, err)
+	}
+}
+
+func TestWorktreeTaskCodexAppManagementUsesRecordedTask(t *testing.T) {
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{}
+	r.Local = control
+	c := localConfig(t.TempDir())
+	r.Config = c
+	task, err := r.Create("TASK-APP-MANAGEMENT", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Conversation = "mcp:thread"
+	if err = r.State.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"archive-task", "unarchive-task", "pin-task", "unpin-task", "list-projects"} {
+		if _, err = r.ManageCodexAppTask(task.Ticket, action, ""); err != nil {
+			t.Fatal(action, err)
+		}
+	}
+	if _, err = r.ManageCodexAppTask(task.Ticket, "project-task", "project-one"); err != nil || control.projectID != "project-one" {
+		t.Fatal(control.projectID, err)
+	}
+	if _, err = r.ManageCodexAppTask(task.Ticket, "rename-task", "Renamed task"); err != nil || control.projectID != "Renamed task" {
+		t.Fatal(control.projectID, err)
+	}
+}
+
+func TestWorktreeTaskAdoptsAndRunsNativeCodexAppThread(t *testing.T) {
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{}
+	r.Local = control
+	c := localConfig(t.TempDir())
+	r.Config = c
+	task, err := r.Create("TASK-APP-ADOPT", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Phase = "active"
+	if err = r.State.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	task, err = r.AdoptCodexAppThread(task.Ticket, "native-thread")
+	if err != nil || task.AppThread != "native-thread" || task.Owner != "app" {
+		t.Fatal(task, err)
+	}
+	stored, err := r.State.Task(task.Ticket)
+	if err != nil || stored.AppThread != "native-thread" {
+		t.Fatal(stored, err)
+	}
+	result, err := r.RunCodexAppThread(task.Ticket, "continue", true)
+	if err != nil || result.ID != "native-thread" || result.Job != "app-turn" {
+		t.Fatal(result, err)
+	}
+}
+
+func TestWorktreeTaskRefusesAdoptionWhileT3IsOnline(t *testing.T) {
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{online: true}
+	r.Local = control
+	c := localConfig(t.TempDir())
+	r.Config = c
+	task, err := r.Create("TASK-APP-ADOPT-BUSY", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Phase = "active"
+	if err = r.State.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.AdoptCodexAppThread(task.Ticket, "native-thread"); err == nil {
+		t.Fatal("online T3 writer allowed native thread adoption")
+	}
+}
+
+func TestWorktreeTaskCreatesNativeCodexAppThread(t *testing.T) {
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{}
+	r.Local = control
+	c := localConfig(t.TempDir())
+	r.Config = c
+	task, err := r.Create("TASK-APP-CREATE", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Phase = "active"
+	if err = r.State.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	task, err = r.CreateCodexAppThread(task.Ticket, "Created thread", "project-one")
+	if err != nil || task.AppThread != "created-native-thread" || task.Owner != "app" {
+		t.Fatal(task, err)
 	}
 }
 

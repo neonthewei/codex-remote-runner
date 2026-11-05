@@ -79,11 +79,18 @@ pwsh -File deploy/install-windows-worker.ps1 `
   <# the required arguments above #> `
   -SetupExecutablePath 'C:\Program Files\Git\bin\bash.exe' `
   -SetupArguments @('scripts/agent-worktree-setup.sh') `
-  -SetupPathEntries @('C:\Program Files\nodejs', 'C:\Users\you\AppData\Roaming\npm')
+  -SetupPathEntries @('C:\Program Files\nodejs', 'C:\Users\you\AppData\Roaming\npm') `
+  -WorkspaceExecutablePath 'C:\Program Files\nodejs\node.exe' `
+  -WorkspaceArguments @('scripts/codex-workspace-action.mjs') `
+  -WorkspacePathEntries @('C:\Program Files\nodejs', 'C:\Users\you\AppData\Roaming\npm', 'C:\Program Files\Git\bin') `
+  -BrowserExecutablePath 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 ```
 
 `prepare` reaches `active` only after this command succeeds in the task worktree.
 No setup command is run when the policy leaves it unconfigured.
+Workspace actions are separately pinned. They permit only `run-production`,
+`prepare-preview` and `run-preview`; the controller cannot submit another
+executable or argument. Browser inspection uses only the pinned browser binary.
 
 If the Windows in-box OpenSSH service exits with error 1067, follow
 [Microsoft's documented upgrade procedure](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release):
@@ -123,8 +130,17 @@ codex-remote serve-task remote-dev
 codex-remote run remote-dev --model gpt-6.1-sol --prompt-file /private/task.txt
 codex-remote status remote-dev
 
+# Keep the production web service under the bot computer's service manager.
+codex-remote serve-web remote-dev --mode production
+
+# From another process, verify the public root and requested journey.
+codex-remote web-status remote-dev --path /auth/dev-login
+codex-remote web-logs remote-dev --tail 200
+codex-remote web-inspect remote-dev --path /auth/dev-login --output-file /private/remote-dev.png
+
 # Stop only this task's managed Windows T3 process tree.
 codex-remote stop-task remote-dev
+codex-remote stop-web remote-dev
 ```
 
 Each Windows task receives a distinct loopback port from the installed range.
@@ -133,6 +149,12 @@ it does not kill an unverified PID. A normal `serve-task` termination also sends
 that structured stop request. The T3 HTTPS URL is optional human visibility.
 Grokbot's control path is the CLI and SSH worker protocol. See
 [remote Windows operations](docs/operations.md#remote-windows-host).
+
+`serve-web` never prepares a database preview. Preview remains an explicit two
+step operation: `prepare-preview TASK`, then `serve-web TASK --mode preview`.
+`web-status` returns a URL only after the public HTTPS root and requested path
+both respond. `web-inspect` captures a screenshot plus console exceptions and
+failed network responses from the same verified public URL.
 
 ## Same-computer Windows mode
 
@@ -164,7 +186,19 @@ stop `serve-task`, then run `codex-remote handoff fix-login --to app`. To return
 control, release the conversation in Codex App, start `serve-task`, then run
 `codex-remote handoff fix-login --to t3`. The controller refuses T3 dispatch while
 the recorded owner is the app. App-created turns are not imported into T3's own
-message database, so inspect both histories after a handoff.
+message database, so inspect both histories after a handoff. To let the bot
+continue a native App-created thread directly, stop T3, run `adopt-thread TASK
+--thread-id THREAD_ID`, then use `app-run TASK --prompt-file PATH`.
+`app-run --full-access=true` is an explicit trust decision that disables approval
+prompts for that turn; omit it when the thread should retain interactive approval
+boundaries. The adopted thread must be idle and belong to the exact worktree.
+
+`archive-task`, `unarchive-task`, `pin-task`, `unpin-task`, `list-projects` and
+`project-task` and `rename-task` manage that native App thread through supported
+app-server RPCs. `create-app-thread` creates a native collaborative thread in the
+recorded worktree and can assign its Project at creation.
+Pinning uses a synchronized `Pinned` section. Project IDs come from
+`list-projects`; they are not guessed from another client.
 
 Local and remote-Windows worktree tasks may share the signed-in Codex profile.
 Each task has its own worktree, T3 data directory, listener, conversation owner

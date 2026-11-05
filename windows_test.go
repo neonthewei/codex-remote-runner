@@ -428,6 +428,42 @@ func TestWindowsWorkerPolicyRejectsEscapedTaskPaths(t *testing.T) {
 	}
 }
 
+func TestWindowsWorkspaceAndBrowserPolicyMustBePinned(t *testing.T) {
+	policy := testWindowsWorkerPolicy()
+	policy.WorkspaceArgs = []string{"scripts/action.mjs"}
+	if err := policy.Validate(); err == nil {
+		t.Fatal("workspace arguments were accepted without a pinned executable")
+	}
+	policy.WorkspaceBin = `C:/Program Files/nodejs/node.exe`
+	policy.WorkspacePaths = []string{`C:/Program Files/nodejs`}
+	policy.BrowserBin = `C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe`
+	if err := policy.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	policy.BrowserBin = "relative/browser.exe"
+	if err := policy.Validate(); err == nil {
+		t.Fatal("relative browser executable was accepted")
+	}
+}
+
+func TestWindowsWebLogsAreBounded(t *testing.T) {
+	task := Task{T3Home: filepath.ToSlash(t.TempDir())}
+	if err := os.WriteFile(windowsTaskControlPath(task, "web.log"), []byte("one\ntwo\nthree\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	value, err := windowsWebLogs(task, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, ok := value["lines"].([]string)
+	if !ok || len(lines) != 2 || lines[0] != "three" {
+		t.Fatal(value)
+	}
+	if _, err = windowsWebLogs(task, 1001); err == nil {
+		t.Fatal("unbounded web log tail was accepted")
+	}
+}
+
 func TestWindowsManagedTaskStopReleasesServiceLock(t *testing.T) {
 	if os.Getenv("CODEX_REMOTE_MANAGED_TASK_HELPER") == "1" {
 		time.Sleep(time.Hour)

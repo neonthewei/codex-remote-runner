@@ -53,13 +53,15 @@ from build/service startup. Create a PR only when authorized by that task.
 This mode mirrors the original controller-to-VM design: the bot's own computer
 runs the controller, owns SQLite state and decides when an operation is safe to
 retry. Windows is an SSH execution host for Git worktrees, T3 and its existing
-Codex login. Grokbot is never installed on Windows, and browser automation is not
-part of the agent control path.
+Codex login. Grokbot is never installed on Windows. Optional browser inspection
+is a bounded worker operation against a worker-verified public task URL, not UI
+automation of T3 or an unrestricted browser channel.
 
 The Windows worker is the same reviewed `codex-remote` binary. Its hidden
 `worker` entrypoint accepts one bounded JSON request on standard input and only
-implements health, prepare, run, thread status, pairing, online, branch and
-managed T3 start/stop operations. The Windows installer binds the dedicated public key to an
+implements health, prepare, run, native App-thread management, workspace web
+lifecycle, bounded logs/browser inspection, pairing, online, branch and managed
+T3 start/stop operations. The Windows installer binds the dedicated public key to an
 encoded PowerShell forced command and disables forwarding and PTY allocation.
 The controller opens SSH without a remote shell command and writes the request to
 standard input. Prompt text is never placed in the process list.
@@ -86,6 +88,13 @@ the new task worktree before `prepare` records success. These values live in the
 private worker policy and are never accepted from the controller request. A
 failed or interrupted bootstrap leaves the task in `preparing`; after inspecting
 the host, `recover-prepare` reruns the same pinned command and verifies the branch.
+
+Optional public-web actions use `-WorkspaceExecutablePath`,
+`-WorkspaceArguments` and `-WorkspacePathEntries`. The worker appends only one
+of three fixed actions: `run-production`, `prepare-preview` or `run-preview`.
+Configure `-BrowserExecutablePath` to enable screenshots and console, exception
+and failed-network capture with the installed Edge or Chrome binary. None of
+these paths or fixed arguments can be replaced by an SSH request.
 
 If the in-box OpenSSH service fails with error 1067, use
 [Microsoft's documented upgrade path](https://learn.microsoft.com/en-us/troubleshoot/windows-server/system-management-components/upgrade-in-box-openssh-to-latest-openssh-release):
@@ -133,6 +142,33 @@ Worker-side Git fetch and worktree creation are bounded operations. A stalled
 Git or SSH process tree is terminated after two minutes so a dropped transport
 cannot leave later recovery attempts waiting behind orphaned children.
 
+Public application servers are independent of T3. Keep `serve-web TASK --mode
+production` under the bot computer's service manager and poll `web-status TASK
+--path /requested-journey` from another process. The worker parses only a
+`https://*.trycloudflare.com` URL from the task-private bounded log and returns it
+only after the public root and requested journey both respond with HTTP 2xx or
+3xx. `web-logs` returns a bounded tail. `web-inspect` revisits that same verified
+journey with the pinned browser, writes the screenshot only to an explicit new
+controller file, and returns bounded console, JavaScript exception and
+network-failure metadata. Stop only that task's web Job Object with `stop-web`.
+
+Production is the default and does not create a preview. A preview requires the
+explicit sequence `prepare-preview TASK` followed by `serve-web TASK --mode
+preview`. Stopping a web service never deletes a preview or worktree.
+
+Native Codex App collaboration is separate from T3 history. After stopping the
+task's T3 server, `adopt-thread TASK --thread-id THREAD_ID` verifies that the
+thread is idle and its cwd equals the recorded worktree, then records it as the
+task's native App thread. `app-run` continues that exact thread and waits for its
+turn completion. `--full-access=true` explicitly selects `never` approval and
+danger-full-access for that turn; without it, the thread's normal approval policy
+applies and may require a user-facing client. Archive, pin and project commands
+resolve the recorded App thread and refuse ambiguous worktree matches.
+`create-app-thread` creates a native thread in the task worktree with an optional
+verified Project ID; `rename-task` updates its native App title. An App-created
+thread can be adopted only after its current App client releases the single
+writer. The worker never steals that writer or runs two turns concurrently.
+
 The private T3 HTTPS origin remains optional for human review. The bot does not
 need a paired browser. Tailscale Serve on Windows may continue to proxy the T3
 loopback port, but SSH is the command path. Funnel is not used.
@@ -150,7 +186,9 @@ Acceptance requires:
 - one harmless `run` executes through the structured worker and returns the
   original T3 thread/run identifiers;
 - an interrupted start is recovered with `recover-turn` and never replayed; and
-- Windows has no Grokbot installation and no SSH password authentication.
+- Windows has no Grokbot installation and no SSH password authentication; and
+- production web start yields a verified public HTTPS URL, browser inspection
+  captures a screenshot and bounded diagnostics, and `stop-web` makes it offline.
 
 ## Windows local bot self-install
 
