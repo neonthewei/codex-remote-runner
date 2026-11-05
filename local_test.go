@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 type fakeLocalControl struct {
@@ -321,6 +322,25 @@ func TestLocalSetupProcess(t *testing.T) {
 	if err := os.WriteFile("setup.marker", []byte("ready"), 0600); err != nil {
 		os.Exit(1)
 	}
+}
+
+func TestRunLocalCommandWithTimeoutStopsHungProcess(t *testing.T) {
+	t.Setenv("CODEX_REMOTE_TIMEOUT_HELPER", "1")
+	started := time.Now()
+	err := runLocalCommandWithTimeout(100*time.Millisecond, nil, os.Args[0], "-test.run=^TestLocalCommandTimeoutProcess$")
+	if !errors.Is(err, errLocalCommandTimedOut) {
+		t.Fatal(err)
+	}
+	if time.Since(started) > 5*time.Second {
+		t.Fatal("hung local command did not stop promptly")
+	}
+}
+
+func TestLocalCommandTimeoutProcess(t *testing.T) {
+	if os.Getenv("CODEX_REMOTE_TIMEOUT_HELPER") != "1" {
+		return
+	}
+	time.Sleep(30 * time.Second)
 }
 
 func TestLocalPairingStaysInSelectedFile(t *testing.T) {

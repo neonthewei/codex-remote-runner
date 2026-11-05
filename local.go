@@ -32,6 +32,10 @@ type localHost struct {
 	setupPaths []string
 }
 
+const localGitCommandTimeout = 2 * time.Minute
+
+var errLocalCommandTimedOut = errors.New("local command timed out")
+
 func (r *Runner) localControl() LocalControl {
 	if r.Local != nil {
 		return r.Local
@@ -371,13 +375,13 @@ func (l *localHost) Prepare(t Task, base, branch string) error {
 	if !os.IsNotExist(statErr) {
 		return errors.New("cannot inspect local worktree path")
 	}
-	if err := runLocalCommand(nil, "git", "-C", t.SourceRoot, "fetch", "origin", base); err != nil {
+	if err := runLocalCommandWithTimeout(localGitCommandTimeout, nil, "git", "-C", t.SourceRoot, "fetch", "origin", base); err != nil {
 		return errors.New("cannot fetch configured local base")
 	}
 	if err := os.MkdirAll(filepath.Dir(t.Worktree), 0700); err != nil {
 		return err
 	}
-	if err := runLocalCommand(nil, "git", "-C", t.SourceRoot, "worktree", "add", "-b", branch, t.Worktree, "origin/"+base); err != nil {
+	if err := runLocalCommandWithTimeout(localGitCommandTimeout, nil, "git", "-C", t.SourceRoot, "worktree", "add", "-b", branch, t.Worktree, "origin/"+base); err != nil {
 		return errors.New("cannot create local task worktree")
 	}
 	return l.setup(t)
@@ -535,10 +539,21 @@ func environmentWithPaths(env, paths []string) []string {
 	return env
 }
 
-func runLocalCommand(input io.Reader, name string, args ...string) error {
+func runLocalCommandWithTimeout(timeout time.Duration, input io.Reader, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = input
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	return cmd.Run()
+	stop := make(chan struct{})
+	timedOut := make(chan struct{}, 1)
+	timer := time.AfterFunc(timeout, func() {
+		timedOut <- struct{}{}
+		close(stop)
+	})
+	err := runManagedProcessUntil(cmd, stop)
+	if !timer.Stop() {
+		<-timedOut
+		return errLocalCommandTimedOut
+	}
+	return err
 }

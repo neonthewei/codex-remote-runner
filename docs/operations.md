@@ -120,6 +120,9 @@ worker owns that task's T3 process tree in a Windows Job Object. A normal
 SIGTERM or Ctrl-C sends a structured stop request. After an abrupt controller
 loss, use `stop-task TASK` before restarting the service; it signals the owning
 worker through task-private state rather than killing an unverified PID.
+Worker-side Git fetch and worktree creation are bounded operations. A stalled
+Git or SSH process tree is terminated after two minutes so a dropped transport
+cannot leave later recovery attempts waiting behind orphaned children.
 
 The private T3 HTTPS origin remains optional for human review. The bot does not
 need a paired browser. Tailscale Serve on Windows may continue to proxy the T3
