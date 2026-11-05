@@ -214,6 +214,13 @@ in the previous client before the next client sends work. A failed start remains
 uncertain. Inspect T3 and use `recover-turn TASK --conversation T3_THREAD_ID`
 instead of sending the prompt again.
 
+Windows does not currently report T3's built-in service manager as supported.
+`deploy/install-local-task.ps1` therefore registers a per-user Task Scheduler
+service with automatic restart and configures one private Tailscale Serve HTTPS
+listener. It runs only after that Windows user signs in so it can reuse the same
+Codex login. The command arguments contain paths and task identity only; pairing
+tokens remain in explicitly selected private output files.
+
 `IB_TICKET_STATE` or global `--state PATH` selects the state directory, defaulting
 to `~/.local/state/instabox-ticket-runner`. It must be private (0700). Keep the
 SQLite database and namespace together. Configuration contains settings and

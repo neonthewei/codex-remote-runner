@@ -363,22 +363,33 @@ func t3Pair(r *Runner, ticket, path string) (any, error) {
 	if t.Backend != "t3" || t.Phase != "active" {
 		return nil, errors.New("pairing requires an active T3 task")
 	}
-	if _, err = r.owned(t); err != nil {
-		return nil, err
-	}
-	pairer, ok := r.Client.(interface {
-		PairT3(string, string) (string, error)
-	})
-	if !ok {
-		return nil, errors.New("client does not support private T3 pairing")
-	}
 	// Create the private destination first, never overwrite an existing pairing.
 	f, err := os.OpenFile(expandHome(path), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return nil, errors.New("cannot create private pairing file; choose an unused path")
 	}
 	defer f.Close()
-	raw, err := pairer.PairT3(t.Box, r.Config.T3PublicURL)
+	var raw string
+	if t.Host == "local" {
+		if !r.localControl().Online(t) {
+			os.Remove(f.Name())
+			return nil, errors.New("local T3 server is offline; start its service before pairing")
+		}
+		raw, err = r.localControl().Pair(t, r.Config.T3PublicURL)
+	} else {
+		if _, err = r.owned(t); err != nil {
+			os.Remove(f.Name())
+			return nil, err
+		}
+		pairer, ok := r.Client.(interface {
+			PairT3(string, string) (string, error)
+		})
+		if !ok {
+			os.Remove(f.Name())
+			return nil, errors.New("client does not support private T3 pairing")
+		}
+		raw, err = pairer.PairT3(t.Box, r.Config.T3PublicURL)
+	}
 	if err != nil {
 		os.Remove(f.Name())
 		return nil, err

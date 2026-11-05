@@ -63,10 +63,30 @@ control, release the conversation in Codex App, start `serve-local`, then run
 the recorded owner is the app. App-created turns are not imported into T3's own
 message database, so inspect both histories after a handoff.
 
-Local mode is currently one serialized Codex profile, one T3 listener per task,
-and an operator-managed foreground service. It does not copy credentials,
+Local mode is currently one serialized Codex profile and one T3 listener per
+task, run either in the foreground or as the Windows scheduled service below. It does not copy credentials,
 checkpoint a VM, or require Instabox. The controller fetches the configured base
 from `origin` and creates a new task branch beneath `local_worktree_root`.
+
+On Windows, install the prepared task as a restartable per-user scheduled service
+and expose only that listener to the private tailnet:
+
+```powershell
+pwsh -File deploy/install-local-task.ps1 `
+  -BinaryPath C:\private\ib-ticket.exe `
+  -ConfigPath C:\private\config.yaml `
+  -StatePath C:\private\state `
+  -TaskId fix-login `
+  -LocalPort 3784 `
+  -TailscaleHttpsPort 10000
+```
+
+The service runs after that user signs in, restarts after failure, and preserves
+controller state, worktrees, and T3 history when removed. Use
+`deploy/uninstall-local-task.ps1` to remove the scheduled task without deleting
+task data. It intentionally preserves the Tailscale listener
+because other local services may share that node configuration. Pairing
+credentials must still be written with `pair --output-file` and opened privately.
 
 ## Configure and log in
 

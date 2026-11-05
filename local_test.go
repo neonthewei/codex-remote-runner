@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -12,6 +13,7 @@ type fakeLocalControl struct {
 	served   bool
 	result   StartResult
 	thread   map[string]any
+	pairing  string
 }
 
 func (f *fakeLocalControl) Prepare(Task, string, string) error {
@@ -28,6 +30,13 @@ func (f *fakeLocalControl) Run(Task, string, string) (StartResult, error) {
 
 func (f *fakeLocalControl) Thread(Task) (map[string]any, error) {
 	return f.thread, nil
+}
+
+func (f *fakeLocalControl) Pair(Task, string) (string, error) {
+	if f.pairing == "" {
+		return "", errors.New("missing pairing")
+	}
+	return f.pairing, nil
 }
 
 func (f *fakeLocalControl) Online(Task) bool {
@@ -153,5 +162,30 @@ func TestLocalPrepareDoesNotHideUncertainState(t *testing.T) {
 	}
 	if _, err = r.Prepare(task.Ticket, c.Repo, c.Base); err == nil {
 		t.Fatal("uncertain local preparation was reported as complete")
+	}
+}
+
+func TestLocalPairingStaysInSelectedFile(t *testing.T) {
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{online: true, pairing: `{"url":"https://private.example/pair#token=secret"}`}
+	r.Local = control
+	c := localConfig(t.TempDir())
+	c.T3PublicURL = "https://private.example"
+	r.Config = c
+	task, err := r.Create("TASK-PAIR", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Phase = "active"
+	if err = r.State.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "pairing.json")
+	if _, err = t3Pair(r, task.Ticket, path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || string(raw) != control.pairing {
+		t.Fatal(string(raw), err)
 	}
 }

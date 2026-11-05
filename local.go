@@ -18,6 +18,7 @@ type LocalControl interface {
 	Prepare(Task, string, string) error
 	Run(Task, string, string) (StartResult, error)
 	Thread(Task) (map[string]any, error)
+	Pair(Task, string) (string, error)
 	Online(Task) bool
 	Serve(Task) error
 }
@@ -289,6 +290,14 @@ func (l *localHost) Thread(t Task) (map[string]any, error) {
 		return nil, errors.New("unexpected local T3 status")
 	}
 	return value, nil
+}
+
+func (l *localHost) Pair(t Task, publicURL string) (string, error) {
+	raw, err := l.t3(nil, t, "auth", "pairing", "create", "--base-dir", t.T3Home, "--ttl", "5m", "--base-url", publicURL, "--json")
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 func (l *localHost) Online(t Task) bool {
