@@ -110,6 +110,15 @@ identity file, `IdentitiesOnly yes` and `AddressFamily inet`. Do not automate
 names this alias; credentials do not belong in YAML. Run `codex-remote check-host`
 to verify the forced worker protocol.
 
+For a private GitHub source repository that uses a deploy key, keep the fetch
+URL on SSH and the push URL on the developer's normal HTTPS credential path.
+Set the source repository's `core.sshCommand` to Git for Windows' bundled
+`usr/bin/ssh.exe`, the dedicated deploy key, `IdentitiesOnly yes`, `BatchMode
+yes` and strict host-key checking. Do not use the Windows in-box OpenSSH client
+for this outbound hop: the worker itself already runs under Windows sshd, and a
+nested in-box SSH client can remain open after GitHub authentication instead of
+returning control to Git.
+
 Copy `config.windows.example.yaml` outside the checkout, fill every absolute
 Windows path and keep it private. `create` records the remote host and bounded
 paths in the controller's local state. `prepare`, `run`, `status`, `pair`,
