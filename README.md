@@ -192,6 +192,12 @@ continue a native App-created thread directly, stop T3, run `adopt-thread TASK
 `app-run --full-access=true` is an explicit trust decision that disables approval
 prompts for that turn; omit it when the thread should retain interactive approval
 boundaries. The adopted thread must be idle and belong to the exact worktree.
+`app-run` is synchronous: it waits for `turn/completed`, releases its temporary
+writer subscription and then returns. `owner: app` means native App-thread
+routing, not that the human App client currently owns the writer. A caller may
+report success only after receiving the native thread ID and completed turn ID.
+If the App holds the writer, `app-run` fails instead of silently switching to the
+separate T3 conversation path.
 
 `archive-task`, `unarchive-task`, `pin-task`, `unpin-task`, `list-projects` and
 `project-task` and `rename-task` manage that native App thread through supported

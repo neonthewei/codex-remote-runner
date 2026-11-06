@@ -57,6 +57,18 @@ project IDs from another client are not interchangeable. Never steal an active
 App writer; ask the user to release it before adoption. Do not guess project or
 thread IDs.
 
+Run `app-run` in the foreground and wait for its completed turn result. It
+temporarily acquires the native thread writer and explicitly releases it after
+completion. Never background it or claim that a returned turn might still be
+running. `owner: app` identifies the native App-thread routing mode; it does not
+mean that the human App client currently holds the writer. The App remains able
+to display the synchronized thread throughout this mode. Report a prompt as sent
+only when `app-run` returns both the native thread ID and completed turn ID. If
+the App currently holds the writer, report the exact writer-unavailable error and
+ask the user to release that thread in the App; do not claim success or silently
+fall back to T3. T3 `run` is a separate conversation path and does not provide
+the same native App-thread history.
+
 For `host: local` on Windows, use the Windows local bot self-install procedure.
 Inspect existing paths, tasks and Tailscale mappings before running
 `deploy/bootstrap-local-windows.ps1`. Local mode uses the signed-in host's Codex

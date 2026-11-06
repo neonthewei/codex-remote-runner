@@ -307,7 +307,14 @@ func runCodexAppTurn(config Config, task Task, prompt string, fullAccess bool) (
 		params["approvalPolicy"] = "never"
 		params["sandboxPolicy"] = map[string]string{"type": "dangerFullAccess"}
 	}
-	return client.startTurnAndWait(thread.ID, params)
+	result, err = client.startTurnAndWait(thread.ID, params)
+	if err != nil {
+		return result, err
+	}
+	if err = client.call("thread/unsubscribe", map[string]string{"threadId": thread.ID}, nil); err != nil {
+		return result, errors.New("Codex App turn completed but its writer could not be released")
+	}
+	return result, nil
 }
 
 func (c *codexAppRPC) startTurnAndWait(threadID string, params map[string]any) (StartResult, error) {
