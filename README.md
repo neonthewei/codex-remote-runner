@@ -189,6 +189,14 @@ the recorded owner is the app. App-created turns are not imported into T3's own
 message database, so inspect both histories after a handoff. To let the bot
 continue a native App-created thread directly, stop T3, run `adopt-thread TASK
 --thread-id THREAD_ID`, then use `app-run TASK --prompt-file PATH`.
+
+These are two mutually exclusive creation paths. A bot that needs the Codex App
+third-party takeover indicator must create the conversation through T3 `run`
+first, then use `project-task`, `rename-task` and `pin-task` on that T3-originated
+thread. `create-app-thread` plus `app-run` is the App-native alternative: T3 must
+be stopped, there is no T3 takeover banner, and the App-created history is not
+silently imported into T3. Do not keep `serve-task` online while requesting
+`app-run`.
 `app-run --full-access=true` is an explicit trust decision that disables approval
 prompts for that turn; omit it when the thread should retain interactive approval
 boundaries. The adopted thread must be idle and belong to the exact worktree.

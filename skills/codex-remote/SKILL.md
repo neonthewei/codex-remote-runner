@@ -83,6 +83,20 @@ before `handoff --to app`. Restart it and verify the endpoint before
 `handoff --to t3`. An uncertain dispatch uses `recover-turn`, never replay. Pair
 through a private output file and do not expose its contents in model context.
 
+Choose one conversation path before creating the first thread. For remote-agent
+collaboration with the Codex App third-party takeover indicator, use T3-first:
+start `serve-task`, keep the owner `t3`, and create the first conversation with
+`run`. Then use `project-task`, `rename-task` and `pin-task` on that T3-originated
+native thread. Hand control to the human only by stopping `serve-task` and using
+`handoff --to app`; return it only after the human releases the thread, T3 is
+started, and `handoff --to t3` succeeds. Do not call `create-app-thread` or
+`app-run` in this path.
+
+Use `create-app-thread` and `app-run` only for the alternate App-native path.
+That path requires `serve-task` to be stopped and does not show a T3 takeover
+banner. A native App-created thread is not silently converted into T3 history.
+Never require T3 to stay online while also requesting `app-run`.
+
 Execute on the bot's persistent host for phone-driven work. Use the operator's
 private YAML through CODEX_REMOTE_CONFIG for every command. Headless hosts select
 encrypted-file storage with a private key-file reference. Inspect existing key
