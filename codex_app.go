@@ -252,6 +252,17 @@ func createCodexAppThread(config Config, task Task, title, projectID string) (st
 		if err := client.call("thread/name/set", map[string]string{"threadId": response.Thread.ID, "name": title}, nil); err != nil {
 			return nil, err
 		}
+		if projectID != "" {
+			read := struct {
+				Thread codexAppThread `json:"thread"`
+			}{}
+			if err := client.call("thread/read", map[string]any{"threadId": response.Thread.ID, "includeTurns": false}, &read); err != nil {
+				return nil, err
+			}
+			if read.Thread.ProjectID == nil || *read.Thread.ProjectID != projectID {
+				return nil, errors.New("Codex App thread project assignment did not persist")
+			}
+		}
 		if err := client.call("thread/unsubscribe", map[string]string{"threadId": response.Thread.ID}, nil); err != nil {
 			return nil, errors.New("cannot release the new Codex App thread writer")
 		}

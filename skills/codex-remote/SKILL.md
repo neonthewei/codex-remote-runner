@@ -51,7 +51,9 @@ exact task worktree. Continue it with `app-run`. Use `--full-access=true` only
 when the user explicitly authorizes that trust level. `archive-task`,
 `unarchive-task`, `pin-task`, `unpin-task`, `list-projects` and `project-task`
 operate on the recorded native thread. `create-app-thread` creates a native
-collaborative thread and `rename-task` sets its App title. Never steal an active
+collaborative thread and `rename-task` sets its App title. Use the native App
+project ID returned by `list-projects TASK` at creation time; saved workspace
+project IDs from another client are not interchangeable. Never steal an active
 App writer; ask the user to release it before adoption. Do not guess project or
 thread IDs.
 

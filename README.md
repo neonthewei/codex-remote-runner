@@ -196,7 +196,10 @@ boundaries. The adopted thread must be idle and belong to the exact worktree.
 `archive-task`, `unarchive-task`, `pin-task`, `unpin-task`, `list-projects` and
 `project-task` and `rename-task` manage that native App thread through supported
 app-server RPCs. `create-app-thread` creates a native collaborative thread in the
-recorded worktree and can assign its Project at creation.
+recorded worktree and can assign its Project at creation. Use the native Project
+ID from `list-projects TASK`; saved workspace or sidebar project identifiers from
+other clients are not interchangeable. Creation fails unless the assignment
+persists.
 Pinning uses a synchronized `Pinned` section. Project IDs come from
 `list-projects`; they are not guessed from another client.
 
