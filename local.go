@@ -310,6 +310,9 @@ func (r *Runner) runLocal(t Task, prompt, model string) (StartResult, error) {
 	if !r.localControl().Online(t) {
 		return result, errors.New("local T3 server is offline; run serve-task for this task")
 	}
+	if t.Conversation == "" && strings.TrimSpace(model) == "" {
+		return result, errors.New("first local T3 run requires --model")
+	}
 	if err := r.State.ClearWorktreeLeases(t.User); err != nil {
 		return result, err
 	}

@@ -143,6 +143,10 @@ codex-remote stop-task remote-dev
 codex-remote stop-web remote-dev
 ```
 
+The first local or Windows T3 `run` requires `--model`. The controller validates
+this before recording an uncertain turn, so a missing model leaves the task
+active and safe to retry with the required option.
+
 Each Windows task receives a distinct loopback port from the installed range.
 `stop-task` signals the worker process that owns the task's Windows Job Object;
 it does not kill an unverified PID. A normal `serve-task` termination also sends

@@ -86,7 +86,8 @@ through a private output file and do not expose its contents in model context.
 Choose one conversation path before creating the first thread. For remote-agent
 collaboration with the Codex App third-party takeover indicator, use T3-first:
 start `serve-task`, keep the owner `t3`, and create the first conversation with
-`run`. Then use `project-task`, `rename-task` and `pin-task` on that T3-originated
+`run --model MODEL`; the first local or Windows run always requires an explicit
+model. Then use `project-task`, `rename-task` and `pin-task` on that T3-originated
 native thread. Hand control to the human only by stopping `serve-task` and using
 `handoff --to app`; return it only after the human releases the thread, T3 is
 started, and `handoff --to t3` succeeds. Do not call `create-app-thread` or

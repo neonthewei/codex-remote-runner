@@ -25,6 +25,7 @@ type fakeLocalControl struct {
 	pairing       string
 	managed       string
 	projectID     string
+	runCalls      int
 }
 
 func (f *fakeLocalControl) Health() (map[string]string, error) {
@@ -92,10 +93,38 @@ func (f *fakeLocalControl) Prepare(Task, string, string) error {
 }
 
 func (f *fakeLocalControl) Run(Task, string, string) (StartResult, error) {
+	f.runCalls++
 	if f.result.ID == "" {
 		return StartResult{}, errors.New("missing result")
 	}
 	return f.result, nil
+}
+
+func TestLocalFirstRunRequiresModelBeforeUncertainState(t *testing.T) {
+	r, _, _ := setup(t)
+	control := &fakeLocalControl{online: true}
+	r.Local = control
+	c := localConfig(t.TempDir())
+	r.Config = c
+	task, err := r.Create("TASK-MODEL-PREFLIGHT", c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Phase = "active"
+	if err = r.State.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Run(task.Ticket, "probe", "", ""); err == nil || err.Error() != "first local T3 run requires --model" {
+		t.Fatal(err)
+	}
+	stored, err := r.State.Task(task.Ticket)
+	if err != nil || stored.Phase != "active" || control.runCalls != 0 {
+		t.Fatal(stored, control.runCalls, err)
+	}
+	var turns int
+	if err = r.State.DB.QueryRow("SELECT count(*) FROM turns WHERE ticket=?", task.Ticket).Scan(&turns); err != nil || turns != 0 {
+		t.Fatal(turns, err)
+	}
 }
 
 func (f *fakeLocalControl) Thread(Task) (map[string]any, error) {
