@@ -25,6 +25,7 @@ type LocalControl interface {
 	CreateAppThread(Task, string, string) (string, error)
 	AppRun(Task, string, bool) (StartResult, error)
 	Prepare(Task, string, string) error
+	PrepareManagedApp(Task, string, string, bool) (managedAppTask, error)
 	Run(Task, string, string) (StartResult, error)
 	Thread(Task) (map[string]any, error)
 	Pair(Task, string) (string, error)
@@ -81,6 +82,10 @@ func (l *localHost) CreateAppThread(task Task, title, projectID string) (string,
 
 func (l *localHost) AppRun(task Task, prompt string, fullAccess bool) (StartResult, error) {
 	return runCodexAppTurn(l.config, task, prompt, fullAccess)
+}
+
+func (l *localHost) PrepareManagedApp(Task, string, string, bool) (managedAppTask, error) {
+	return managedAppTask{}, errors.New("App-managed task creation requires the Windows worker")
 }
 
 const localGitCommandTimeout = 2 * time.Minute
@@ -154,6 +159,31 @@ func (r *Runner) createLocal(ticket string, c Config) (Task, error) {
 		return t, err
 	}
 	return t, nil
+}
+
+func (r *Runner) CreateManagedAppTask(ticket string, c Config, threadID, worktree string) (Task, error) {
+	if c.Host != "windows" {
+		return Task{}, errors.New("create-app-task requires the Windows host")
+	}
+	if strings.TrimSpace(threadID) == "" || strings.ContainsAny(threadID, "\r\n\x00") {
+		return Task{}, errors.New("create-app-task requires the native thread ID created in the remote Codex Project")
+	}
+	worktree = normalizeWindowsPath(strings.TrimSpace(worktree))
+	if !windowsWithin(c.windowsAppWorktreeRoot(), worktree) {
+		return Task{}, errors.New("create-app-task worktree must belong to the configured Codex App worktree root")
+	}
+	task, err := r.createLocal(ticket, c)
+	if err != nil {
+		return task, err
+	}
+	if task.Phase != "created" || task.Conversation != "" || (task.AppThread != "" && task.AppThread != threadID) {
+		return task, errors.New("task already started through another conversation path")
+	}
+	task.Backend = "app"
+	task.Owner = "app"
+	task.AppThread = threadID
+	task.Worktree = worktree
+	return task, r.State.Save(task)
 }
 
 func (r *Runner) allocateWindowsPort(c Config, ticket string) (int, error) {
@@ -255,7 +285,17 @@ func (r *Runner) prepareLocal(t Task, repo, base string) (Task, error) {
 	if err := r.State.Save(t); err != nil {
 		return t, err
 	}
-	if err := r.localControl().Prepare(t, base, t.Branch); err != nil {
+	if t.Backend == "app" {
+		managed, prepareErr := r.localControl().PrepareManagedApp(t, base, t.Branch, false)
+		if prepareErr != nil {
+			return t, prepareErr
+		}
+		t.Worktree = managed.Worktree
+		t.AppThread = managed.ThreadID
+		if managed.Branch != "" {
+			t.Branch = managed.Branch
+		}
+	} else if err := r.localControl().Prepare(t, base, t.Branch); err != nil {
 		return t, err
 	}
 	t.Phase = "active"
@@ -272,6 +312,19 @@ func (r *Runner) recoverPrepareLocal(t Task) (Task, error) {
 	var portErr error
 	if t, portErr = r.ensureWindowsTaskPort(t); portErr != nil {
 		return t, portErr
+	}
+	if t.Backend == "app" {
+		managed, recoverErr := r.localControl().PrepareManagedApp(t, t.Base, t.Branch, true)
+		if recoverErr != nil {
+			return t, recoverErr
+		}
+		t.Worktree = managed.Worktree
+		t.AppThread = managed.ThreadID
+		if managed.Branch != "" {
+			t.Branch = managed.Branch
+		}
+		t.Phase = "active"
+		return t, r.State.Save(t)
 	}
 	branch, err := r.localControl().Branch(t)
 	if err == nil && branch != t.Branch {
@@ -370,7 +423,11 @@ func (r *Runner) recoverTurnLocal(t Task, conversation string) (Task, error) {
 }
 
 func (r *Runner) statusLocal(t Task) (map[string]any, error) {
-	result := map[string]any{"task": t, "t3_online": r.localControl().Online(t), "owner": t.Owner, "worktree": t.Worktree}
+	t3Online := false
+	if t.Backend == "t3" {
+		t3Online = r.localControl().Online(t)
+	}
+	result := map[string]any{"task": t, "t3_online": t3Online, "owner": t.Owner, "worktree": t.Worktree}
 	if !result["t3_online"].(bool) || t.Conversation == "" {
 		return result, nil
 	}
@@ -390,6 +447,9 @@ func (r *Runner) ServeTask(ticket string) error {
 	}
 	if !isWorktreeHost(t.Host) {
 		return errors.New("serve-task requires a worktree task")
+	}
+	if t.Backend != "t3" {
+		return errors.New("serve-task requires a T3-backed task")
 	}
 	return r.localControl().Serve(t)
 }

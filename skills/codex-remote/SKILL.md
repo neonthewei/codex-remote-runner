@@ -57,6 +57,16 @@ project IDs from another client are not interchangeable. Never steal an active
 App writer; ask the user to release it before adoption. Do not guess project or
 thread IDs.
 
+When the task must appear under an existing remote Codex Project, the controlling
+agent must create the native thread from that remote Project before invoking the
+runner. Match project kind `remote`, its host, repository and Windows path; never
+substitute a same-path local Project. Wait for the native thread ID and Windows
+cwd, then call `create-app-task --task TASK --thread-id ID --worktree PATH` and
+`prepare TASK`. The worker verifies thread/cwd/repository identity and runs the
+pinned setup. Use `app-run` for every agent turn on that same thread. Do not run
+`serve-task`, `run`, `create-app-thread` or `project-task` on this path. The last
+two cannot retrofit a projectless thread into another client's remote Project.
+
 Run `app-run` in the foreground and wait for its completed turn result. It
 temporarily acquires the native thread writer and explicitly releases it after
 completion. Never background it or claim that a returned turn might still be
@@ -97,6 +107,11 @@ Use `create-app-thread` and `app-run` only for the alternate App-native path.
 That path requires `serve-task` to be stopped and does not show a T3 takeover
 banner. A native App-created thread is not silently converted into T3 history.
 Never require T3 to stay online while also requesting `app-run`.
+
+Prefer the remote-Project-first `create-app-task` path when project grouping and
+round-trip App/Grokbot collaboration matter. It has one native App history and
+does not display a T3 takeover banner. T3-first remains appropriate only when a
+T3-owned conversation and its explicit takeover indicator are required.
 
 Execute on the bot's persistent host for phone-driven work. Use the operator's
 private YAML through CODEX_REMOTE_CONFIG for every command. Headless hosts select

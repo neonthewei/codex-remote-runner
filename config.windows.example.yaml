@@ -18,6 +18,8 @@ windows_ssh_bin: ssh
 # Absolute paths on Windows. Forward slashes avoid YAML escaping.
 windows_repo_root: C:/Users/you/Documents/Project
 windows_worktree_root: C:/Users/you/.codex/worktrees/remote-project
+# Root used by Codex App-managed worktrees created from the remote Project.
+windows_app_worktree_root: C:/Users/you/.codex/worktrees
 windows_state_root: C:/Users/you/.codex/state/codex-remote-runner
 windows_t3_bin: C:/Users/you/.t3/runtime/versions/VERSION/t3.exe
 windows_codex_bin: C:/Users/you/AppData/Local/OpenAI/Codex/bin/VERSION/codex.exe

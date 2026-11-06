@@ -14,37 +14,38 @@ import (
 )
 
 type Config struct {
-	Host                string   `yaml:"host"`
-	Backend             string   `yaml:"backend"`
-	GuestBinary         string   `yaml:"guest_binary"`
-	T3PublicURL         string   `yaml:"t3_public_url"`
-	User                string   `yaml:"user"`
-	Org                 string   `yaml:"org"`
-	Provider            string   `yaml:"provider"`
-	Repo                string   `yaml:"repo"`
-	Base                string   `yaml:"base"`
-	AutoSuspend         string   `yaml:"auto_suspend"`
-	Snapshot            string   `yaml:"snapshot"`
-	VCPUs               int      `yaml:"vcpus"`
-	Memory              int      `yaml:"mem_mib"`
-	Secrets             []string `yaml:"secrets"`
-	CredentialBackend   string   `yaml:"credential_backend"`
-	CredentialKeyFile   string   `yaml:"credential_key_file"`
-	LocalRepoRoot       string   `yaml:"local_repo_root"`
-	LocalWorktreeRoot   string   `yaml:"local_worktree_root"`
-	LocalT3Bin          string   `yaml:"local_t3_bin"`
-	LocalCodexBin       string   `yaml:"local_codex_bin"`
-	LocalT3Port         int      `yaml:"local_t3_port"`
-	WindowsSSHTarget    string   `yaml:"windows_ssh_target"`
-	WindowsSSHBin       string   `yaml:"windows_ssh_bin"`
-	WindowsRepoRoot     string   `yaml:"windows_repo_root"`
-	WindowsWorktreeRoot string   `yaml:"windows_worktree_root"`
-	WindowsStateRoot    string   `yaml:"windows_state_root"`
-	WindowsT3Bin        string   `yaml:"windows_t3_bin"`
-	WindowsCodexBin     string   `yaml:"windows_codex_bin"`
-	WindowsT3Port       int      `yaml:"windows_t3_port"`
-	WindowsT3PortStart  int      `yaml:"windows_t3_port_start"`
-	WindowsT3PortEnd    int      `yaml:"windows_t3_port_end"`
+	Host                   string   `yaml:"host"`
+	Backend                string   `yaml:"backend"`
+	GuestBinary            string   `yaml:"guest_binary"`
+	T3PublicURL            string   `yaml:"t3_public_url"`
+	User                   string   `yaml:"user"`
+	Org                    string   `yaml:"org"`
+	Provider               string   `yaml:"provider"`
+	Repo                   string   `yaml:"repo"`
+	Base                   string   `yaml:"base"`
+	AutoSuspend            string   `yaml:"auto_suspend"`
+	Snapshot               string   `yaml:"snapshot"`
+	VCPUs                  int      `yaml:"vcpus"`
+	Memory                 int      `yaml:"mem_mib"`
+	Secrets                []string `yaml:"secrets"`
+	CredentialBackend      string   `yaml:"credential_backend"`
+	CredentialKeyFile      string   `yaml:"credential_key_file"`
+	LocalRepoRoot          string   `yaml:"local_repo_root"`
+	LocalWorktreeRoot      string   `yaml:"local_worktree_root"`
+	LocalT3Bin             string   `yaml:"local_t3_bin"`
+	LocalCodexBin          string   `yaml:"local_codex_bin"`
+	LocalT3Port            int      `yaml:"local_t3_port"`
+	WindowsSSHTarget       string   `yaml:"windows_ssh_target"`
+	WindowsSSHBin          string   `yaml:"windows_ssh_bin"`
+	WindowsRepoRoot        string   `yaml:"windows_repo_root"`
+	WindowsWorktreeRoot    string   `yaml:"windows_worktree_root"`
+	WindowsAppWorktreeRoot string   `yaml:"windows_app_worktree_root"`
+	WindowsStateRoot       string   `yaml:"windows_state_root"`
+	WindowsT3Bin           string   `yaml:"windows_t3_bin"`
+	WindowsCodexBin        string   `yaml:"windows_codex_bin"`
+	WindowsT3Port          int      `yaml:"windows_t3_port"`
+	WindowsT3PortStart     int      `yaml:"windows_t3_port_start"`
+	WindowsT3PortEnd       int      `yaml:"windows_t3_port_end"`
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$`)
@@ -91,7 +92,7 @@ func loadConfig(path string, env func(string) (string, bool)) (Config, error) {
 		}
 		c = v
 	}
-	for k, p := range map[string]*string{"HOST": &c.Host, "BACKEND": &c.Backend, "GUEST_BINARY": &c.GuestBinary, "T3_PUBLIC_URL": &c.T3PublicURL, "USER": &c.User, "ORG": &c.Org, "PROVIDER": &c.Provider, "REPO": &c.Repo, "BASE": &c.Base, "AUTO_SUSPEND": &c.AutoSuspend, "SNAPSHOT": &c.Snapshot, "CREDENTIAL_BACKEND": &c.CredentialBackend, "CREDENTIAL_KEY_FILE": &c.CredentialKeyFile, "LOCAL_REPO_ROOT": &c.LocalRepoRoot, "LOCAL_WORKTREE_ROOT": &c.LocalWorktreeRoot, "LOCAL_T3_BIN": &c.LocalT3Bin, "LOCAL_CODEX_BIN": &c.LocalCodexBin, "WINDOWS_SSH_TARGET": &c.WindowsSSHTarget, "WINDOWS_SSH_BIN": &c.WindowsSSHBin, "WINDOWS_REPO_ROOT": &c.WindowsRepoRoot, "WINDOWS_WORKTREE_ROOT": &c.WindowsWorktreeRoot, "WINDOWS_STATE_ROOT": &c.WindowsStateRoot, "WINDOWS_T3_BIN": &c.WindowsT3Bin, "WINDOWS_CODEX_BIN": &c.WindowsCodexBin} {
+	for k, p := range map[string]*string{"HOST": &c.Host, "BACKEND": &c.Backend, "GUEST_BINARY": &c.GuestBinary, "T3_PUBLIC_URL": &c.T3PublicURL, "USER": &c.User, "ORG": &c.Org, "PROVIDER": &c.Provider, "REPO": &c.Repo, "BASE": &c.Base, "AUTO_SUSPEND": &c.AutoSuspend, "SNAPSHOT": &c.Snapshot, "CREDENTIAL_BACKEND": &c.CredentialBackend, "CREDENTIAL_KEY_FILE": &c.CredentialKeyFile, "LOCAL_REPO_ROOT": &c.LocalRepoRoot, "LOCAL_WORKTREE_ROOT": &c.LocalWorktreeRoot, "LOCAL_T3_BIN": &c.LocalT3Bin, "LOCAL_CODEX_BIN": &c.LocalCodexBin, "WINDOWS_SSH_TARGET": &c.WindowsSSHTarget, "WINDOWS_SSH_BIN": &c.WindowsSSHBin, "WINDOWS_REPO_ROOT": &c.WindowsRepoRoot, "WINDOWS_WORKTREE_ROOT": &c.WindowsWorktreeRoot, "WINDOWS_APP_WORKTREE_ROOT": &c.WindowsAppWorktreeRoot, "WINDOWS_STATE_ROOT": &c.WindowsStateRoot, "WINDOWS_T3_BIN": &c.WindowsT3Bin, "WINDOWS_CODEX_BIN": &c.WindowsCodexBin} {
 		if v, ok := env("CODEX_REMOTE_" + k); ok {
 			*p = v
 		}
@@ -146,7 +147,7 @@ func (c Config) Validate() error {
 		if c.Backend != "t3" || c.Provider != "codex" {
 			return errors.New("windows host requires backend t3 and provider codex")
 		}
-		for name, value := range map[string]string{"windows_repo_root": c.WindowsRepoRoot, "windows_worktree_root": c.WindowsWorktreeRoot, "windows_state_root": c.WindowsStateRoot} {
+		for name, value := range map[string]string{"windows_repo_root": c.WindowsRepoRoot, "windows_worktree_root": c.WindowsWorktreeRoot, "windows_app_worktree_root": c.windowsAppWorktreeRoot(), "windows_state_root": c.WindowsStateRoot} {
 			if !windowsAbsolutePath(value) {
 				return fmt.Errorf("%s must be an absolute Windows path", name)
 			}
@@ -210,6 +211,13 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (c Config) windowsAppWorktreeRoot() string {
+	if strings.TrimSpace(c.WindowsAppWorktreeRoot) != "" {
+		return c.WindowsAppWorktreeRoot
+	}
+	return filepath.Dir(filepath.FromSlash(c.WindowsWorktreeRoot))
 }
 
 func (c Config) windowsPortRange() (int, int, error) {

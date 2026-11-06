@@ -75,6 +75,7 @@ pwsh -File deploy/install-windows-worker.ps1 `
   -PublicKeyPath C:\private\codex-remote-windows.pub `
   -RepoRoot C:\Users\you\Documents\Project `
   -WorktreeRoot C:\Users\you\.codex\worktrees\remote-project `
+  -AppWorktreeRoot C:\Users\you\.codex\worktrees `
   -StateRoot C:\Users\you\.codex\state\codex-remote-runner `
   -T3Path C:\Users\you\.t3\runtime\versions\VERSION\t3.exe `
   -CodexPath C:\path\to\codex.exe `
@@ -168,6 +169,26 @@ resolve the recorded App thread and refuse ambiguous worktree matches.
 verified Project ID; `rename-task` updates its native App title. An App-created
 thread can be adopted only after its current App client releases the single
 writer. The worker never steals that writer or runs two turns concurrently.
+
+Remote Project membership must be established before the runner prepares the
+task. On the controlling Codex App, list Projects and select the remote Project
+whose host, repository and Windows path match the worker. Create a worktree
+thread there, wait until its native thread ID and cwd are available, then run:
+
+```sh
+codex-remote create-app-task --task TASK \
+  --thread-id NATIVE_THREAD_ID \
+  --worktree 'C:/Users/you/.codex/worktrees/HASH/Project'
+codex-remote prepare TASK
+```
+
+The worker verifies that the thread belongs to that cwd, both checkouts have the
+configured GitHub repository identity, and the cwd stays under
+`windows_app_worktree_root`. It creates the task branch only when the App left
+the worktree detached, then runs the pinned setup. `recover-prepare` repeats the
+same verification and setup without creating another App thread. A local
+Project ID, `project-task`, or a same-path thread created directly on Windows
+cannot substitute for the controlling client's remote Project ID.
 
 The private T3 HTTPS origin remains optional for human review. The bot does not
 need a paired browser. Tailscale Serve on Windows may continue to proxy the T3
@@ -419,6 +440,7 @@ rejects unknown YAML fields and multiple documents. It does not load `.env` file
 | `windows_ssh_bin` | `CODEX_REMOTE_WINDOWS_SSH_BIN` | SSH client on the controller computer |
 | `windows_repo_root` | `CODEX_REMOTE_WINDOWS_REPO_ROOT` | Existing source checkout on Windows |
 | `windows_worktree_root` | `CODEX_REMOTE_WINDOWS_WORKTREE_ROOT` | Parent directory for Windows task worktrees |
+| `windows_app_worktree_root` | `CODEX_REMOTE_WINDOWS_APP_WORKTREE_ROOT` | Allowed root for worktrees created by the controlling Codex App remote Project |
 | `windows_state_root` | `CODEX_REMOTE_WINDOWS_STATE_ROOT` | Private Windows directory for T3 task data |
 | `windows_t3_bin` | `CODEX_REMOTE_WINDOWS_T3_BIN` | Versioned T3 executable on Windows |
 | `windows_codex_bin` | `CODEX_REMOTE_WINDOWS_CODEX_BIN` | Codex executable on Windows |

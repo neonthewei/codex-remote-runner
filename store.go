@@ -139,6 +139,9 @@ func (s *State) Task(ticket string) (Task, error) {
 			if appErr != nil && appErr != sql.ErrNoRows {
 				err = appErr
 			}
+			if t.Backend == "" && t.Owner == "app" {
+				t.Backend = "app"
+			}
 		}
 	}
 	return t, err
@@ -151,6 +154,10 @@ func (s *State) Save(t Task) error {
 	defer tx.Rollback()
 	if t.Backend == "t3" {
 		if _, e := tx.Exec("INSERT OR IGNORE INTO t3_tasks(ticket) VALUES(?)", t.Ticket); e != nil {
+			return e
+		}
+	} else if t.Backend == "app" {
+		if _, e := tx.Exec("DELETE FROM t3_tasks WHERE ticket=?", t.Ticket); e != nil {
 			return e
 		}
 	}

@@ -28,6 +28,8 @@ Commands:
   bootstrap                       Create dedicated official Codex login VM
   check-host                      Verify the configured remote Windows worker
   create --task ID                Create one task VM (configurable user/org/size)
+  create-app-task --task ID --thread-id ID --worktree PATH
+                                  Register a task created inside its remote Codex Project
   serve-task ID                   Run one worktree task's T3 server in the foreground
   stop-task ID                    Stop one managed Windows task's T3 server
   serve-web ID --mode production|preview
@@ -184,6 +186,7 @@ func execute(args []string) (any, error) {
 	projectID := f.String("project-id", "", "")
 	clearProject := f.Bool("clear", false, "")
 	threadID := f.String("thread-id", "", "")
+	worktree := f.String("worktree", "", "")
 	fullAccess := f.Bool("full-access", false, "")
 	webMode := f.String("mode", "production", "")
 	webPath := f.String("path", "/", "")
@@ -232,12 +235,12 @@ func execute(args []string) (any, error) {
 		}
 		return map[string]string{"status": "key-created"}, nil
 	}
-	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true, "serve-task": true, "stop-task": true, "serve-local": true, "handoff": true, "archive-task": true, "unarchive-task": true, "pin-task": true, "unpin-task": true, "list-projects": true, "project-task": true, "rename-task": true, "adopt-thread": true, "create-app-thread": true, "app-run": true, "serve-web": true, "web-status": true, "web-logs": true, "web-inspect": true, "stop-web": true, "prepare-preview": true}
+	valid := map[string]bool{"pair": true, "link-pr": true, "create": true, "create-app-task": true, "bootstrap": true, "status": true, "prepare": true, "run": true, "activate": true, "checkpoint": true, "reconcile": true, "recover-prepare": true, "recover-turn": true, "serve-task": true, "stop-task": true, "serve-local": true, "handoff": true, "archive-task": true, "unarchive-task": true, "pin-task": true, "unpin-task": true, "list-projects": true, "project-task": true, "rename-task": true, "adopt-thread": true, "create-app-thread": true, "app-run": true, "serve-web": true, "web-status": true, "web-logs": true, "web-inspect": true, "stop-web": true, "prepare-preview": true}
 	if !valid[action] {
 		return nil, errors.New("unknown command")
 	}
 	ticket := ""
-	if action != "create" && action != "bootstrap" {
+	if action != "create" && action != "create-app-task" && action != "bootstrap" {
 		ticket, e = requireArg(f.Args())
 		if e != nil {
 			return nil, e
@@ -312,6 +315,8 @@ func execute(args []string) (any, error) {
 		return viewTask(t), nil
 	case "create":
 		return r.Create(*taskFlag, c, false)
+	case "create-app-task":
+		return r.CreateManagedAppTask(*taskFlag, c, *threadID, *worktree)
 	case "bootstrap":
 		return r.Bootstrap(c)
 	case "status":

@@ -25,6 +25,7 @@ func windowsConfig() Config {
 	c.WindowsSSHBin = "ssh"
 	c.WindowsRepoRoot = `C:/Users/NEON/Documents/Project`
 	c.WindowsWorktreeRoot = `C:/Users/NEON/.codex/worktrees/remote-project`
+	c.WindowsAppWorktreeRoot = `C:/Users/NEON/.codex/worktrees`
 	c.WindowsStateRoot = `C:/Users/NEON/.codex/state/codex-remote-runner`
 	c.WindowsT3Bin = `C:/Users/NEON/.t3/runtime/versions/0.1.7/t3.exe`
 	c.WindowsCodexBin = `C:/Users/NEON/AppData/Local/OpenAI/Codex/bin/version/codex.exe`
@@ -34,12 +35,13 @@ func windowsConfig() Config {
 
 func testWindowsWorkerPolicy() windowsWorkerPolicy {
 	return windowsWorkerPolicy{
-		RepoRoot:     `C:/Users/NEON/Documents/Project`,
-		WorktreeRoot: `C:/Users/NEON/.codex/worktrees/remote-project`,
-		StateRoot:    `C:/Users/NEON/.codex/state/codex-remote-runner`,
-		T3Bin:        `C:/Users/NEON/.t3/runtime/versions/0.1.7/t3.exe`,
-		CodexBin:     `C:/Users/NEON/AppData/Local/OpenAI/Codex/bin/version/codex.exe`,
-		T3Port:       3784,
+		RepoRoot:        `C:/Users/NEON/Documents/Project`,
+		WorktreeRoot:    `C:/Users/NEON/.codex/worktrees/remote-project`,
+		AppWorktreeRoot: `C:/Users/NEON/.codex/worktrees`,
+		StateRoot:       `C:/Users/NEON/.codex/state/codex-remote-runner`,
+		T3Bin:           `C:/Users/NEON/.t3/runtime/versions/0.1.7/t3.exe`,
+		CodexBin:        `C:/Users/NEON/AppData/Local/OpenAI/Codex/bin/version/codex.exe`,
+		T3Port:          3784,
 	}
 }
 
@@ -73,6 +75,47 @@ func TestWindowsConfigurationAndLifecycle(t *testing.T) {
 	}
 	if err = r.StopTask(task.Ticket); err != nil || !control.stopped {
 		t.Fatal(err)
+	}
+}
+
+func TestWindowsManagedAppTaskStartsInsideSavedProject(t *testing.T) {
+	c := windowsConfig()
+	r, _, _ := setup(t)
+	managedRoot := `C:/Users/NEON/.codex/worktrees/abcd/Project`
+	control := &fakeLocalControl{managedRoot: managedRoot}
+	r.Local = control
+	r.Config = c
+	task, err := r.CreateManagedAppTask("REMOTE-APP-PROJECT", c, "native-project-thread", managedRoot)
+	if err != nil || task.Backend != "app" || task.Owner != "app" {
+		t.Fatal(task, err)
+	}
+	var t3Rows int
+	if err = r.State.DB.QueryRow("SELECT count(*) FROM t3_tasks WHERE ticket=?", task.Ticket).Scan(&t3Rows); err != nil || t3Rows != 0 {
+		t.Fatal(t3Rows, err)
+	}
+	task, err = r.Prepare(task.Ticket, c.Repo, c.Base)
+	if err != nil || !control.prepared || task.Phase != "active" || task.Worktree != managedRoot || task.AppThread != "native-project-thread" || task.Owner != "app" {
+		t.Fatal(task, err)
+	}
+	stored, err := r.State.Task(task.Ticket)
+	if err != nil || stored.Backend != "app" || stored.AppThread != task.AppThread || stored.Worktree != managedRoot {
+		t.Fatal(stored, err)
+	}
+	status, err := r.Status(task.Ticket)
+	if err != nil || status["t3_online"] != false {
+		t.Fatal(status, err)
+	}
+}
+
+func TestWindowsManagedAppTaskRequiresRemoteProjectIdentity(t *testing.T) {
+	c := windowsConfig()
+	r, _, _ := setup(t)
+	r.Config = c
+	if _, err := r.CreateManagedAppTask("REMOTE-APP-NO-THREAD", c, "", `C:/Users/NEON/.codex/worktrees/abcd/Project`); err == nil {
+		t.Fatal("managed App task accepted no native thread")
+	}
+	if _, err := r.CreateManagedAppTask("REMOTE-APP-ESCAPED", c, "native-thread", `C:/Users/NEON/Documents/escaped`); err == nil {
+		t.Fatal("managed App task accepted a worktree outside the App root")
 	}
 }
 
@@ -421,7 +464,7 @@ func TestWindowsSSHWorkerHelper(t *testing.T) {
 
 func TestWindowsWorkerPolicyRejectsEscapedTaskPaths(t *testing.T) {
 	policy := testWindowsWorkerPolicy()
-	request := windowsWorkerRequest{Operation: "online", Task: Task{Host: "windows", SourceRoot: policy.RepoRoot, Worktree: `C:/Users/NEON/.codex/worktrees/other/task`, T3Home: policy.StateRoot + "/task", T3Port: policy.T3Port}}
+	request := windowsWorkerRequest{Operation: "online", Task: Task{Host: "windows", SourceRoot: policy.RepoRoot, Worktree: `C:/Users/NEON/Documents/escaped-task`, T3Home: policy.StateRoot + "/task", T3Port: policy.T3Port}}
 	raw, _ := json.Marshal(request)
 	if _, err := dispatchWindowsWorker(bytes.NewReader(raw), policy); err == nil || !strings.Contains(err.Error(), "escaped") {
 		t.Fatal(err)

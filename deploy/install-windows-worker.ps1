@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$PublicKeyPath,
     [Parameter(Mandatory = $true)][string]$RepoRoot,
     [Parameter(Mandatory = $true)][string]$WorktreeRoot,
+    [string]$AppWorktreeRoot,
     [Parameter(Mandatory = $true)][string]$StateRoot,
     [Parameter(Mandatory = $true)][string]$T3Path,
     [Parameter(Mandatory = $true)][string]$CodexPath,
@@ -52,6 +53,7 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $T3Path = (Resolve-Path -LiteralPath $T3Path).Path
 $CodexPath = (Resolve-Path -LiteralPath $CodexPath).Path
 $WorktreeRoot = [System.IO.Path]::GetFullPath($WorktreeRoot)
+$AppWorktreeRoot = if ($AppWorktreeRoot) { [System.IO.Path]::GetFullPath($AppWorktreeRoot) } else { [System.IO.Path]::GetFullPath((Split-Path -Parent $WorktreeRoot)) }
 $StateRoot = [System.IO.Path]::GetFullPath($StateRoot)
 $PolicyPath = [System.IO.Path]::GetFullPath($PolicyPath)
 
@@ -126,6 +128,7 @@ if ($goVersionText -notmatch 'go(\d+\.\d+(?:\.\d+)?)' -or [version]$Matches[1] -
 }
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $InstallPath) | Out-Null
 New-Item -ItemType Directory -Force -Path $WorktreeRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $AppWorktreeRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PolicyPath) | Out-Null
 Push-Location $checkoutRoot
@@ -142,6 +145,7 @@ $browserExecutablePolicyPath = if ($BrowserExecutablePath) { $BrowserExecutableP
 $policy = [ordered]@{
     repo_root = $RepoRoot.Replace('\', '/')
     worktree_root = $WorktreeRoot.Replace('\', '/')
+    app_worktree_root = $AppWorktreeRoot.Replace('\', '/')
     state_root = $StateRoot.Replace('\', '/')
     t3_bin = $T3Path.Replace('\', '/')
     codex_bin = $CodexPath.Replace('\', '/')

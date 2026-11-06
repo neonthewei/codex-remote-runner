@@ -63,6 +63,7 @@ pwsh -File deploy/install-windows-worker.ps1 `
   -PublicKeyPath C:\private\codex-remote-windows.pub `
   -RepoRoot C:\Users\you\Documents\Project `
   -WorktreeRoot C:\Users\you\.codex\worktrees\remote-project `
+  -AppWorktreeRoot C:\Users\you\.codex\worktrees `
   -StateRoot C:\Users\you\.codex\state\codex-remote-runner `
   -T3Path C:\Users\you\.t3\runtime\versions\VERSION\t3.exe `
   -CodexPath C:\path\to\codex.exe `
@@ -143,6 +144,26 @@ codex-remote stop-task remote-dev
 codex-remote stop-web remote-dev
 ```
 
+For a task that must appear inside the controlling Codex App's existing remote
+Project, create the thread from that Project first. The App returns the native
+thread ID and Windows worktree path. Register those exact values before
+preparing the task:
+
+```sh
+codex-remote create-app-task --task remote-app-dev \
+  --thread-id NATIVE_THREAD_ID \
+  --worktree 'C:/Users/you/.codex/worktrees/HASH/Project'
+codex-remote prepare remote-app-dev
+codex-remote app-run remote-app-dev --prompt-file /private/task.txt --full-access=true
+```
+
+The controlling agent must select the remote Project whose host, repository and
+path match this Windows worker. It must not create a projectless thread or use a
+same-path local Project ID from another host. The worker verifies the native
+thread cwd, GitHub origin and configured App worktree root before setup. This
+path does not start T3; public web service and Cloudflare lifecycle remain
+available through `serve-web`.
+
 The first local or Windows T3 `run` requires `--model`. The controller validates
 this before recording an uncertain turn, so a missing model leaves the task
 active and safe to retry with the required option.
@@ -194,7 +215,7 @@ message database, so inspect both histories after a handoff. To let the bot
 continue a native App-created thread directly, stop T3, run `adopt-thread TASK
 --thread-id THREAD_ID`, then use `app-run TASK --prompt-file PATH`.
 
-These are two mutually exclusive creation paths. A bot that needs the Codex App
+These are mutually exclusive creation paths. A bot that needs the Codex App
 third-party takeover indicator must create the conversation through T3 `run`
 first, then use `project-task`, `rename-task` and `pin-task` on that T3-originated
 thread. `create-app-thread` plus `app-run` is the App-native alternative: T3 must
@@ -220,6 +241,11 @@ other clients are not interchangeable. Creation fails unless the assignment
 persists.
 Pinning uses a synchronized `Pinned` section. Project IDs come from
 `list-projects`; they are not guessed from another client.
+
+Remote Project membership is creation-time routing owned by the controlling
+Codex App. `project-task` cannot retrofit a Windows-created or projectless thread
+into another client's remote Project. Use `create-app-task` with the thread and
+worktree returned by that remote Project instead.
 
 Local and remote-Windows worktree tasks may share the signed-in Codex profile.
 Each task has its own worktree, T3 data directory, listener, conversation owner

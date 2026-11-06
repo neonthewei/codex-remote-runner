@@ -40,28 +40,37 @@ type windowsWorkerRequest struct {
 }
 
 type windowsWorkerPolicy struct {
-	RepoRoot       string   `json:"repo_root"`
-	WorktreeRoot   string   `json:"worktree_root"`
-	StateRoot      string   `json:"state_root"`
-	T3Bin          string   `json:"t3_bin"`
-	CodexBin       string   `json:"codex_bin"`
-	SetupBin       string   `json:"setup_bin,omitempty"`
-	SetupArgs      []string `json:"setup_args,omitempty"`
-	SetupPaths     []string `json:"setup_paths,omitempty"`
-	WorkspaceBin   string   `json:"workspace_bin,omitempty"`
-	WorkspaceArgs  []string `json:"workspace_args,omitempty"`
-	WorkspacePaths []string `json:"workspace_paths,omitempty"`
-	BrowserBin     string   `json:"browser_bin,omitempty"`
-	T3Port         int      `json:"t3_port"`
-	T3PortStart    int      `json:"t3_port_start,omitempty"`
-	T3PortEnd      int      `json:"t3_port_end,omitempty"`
+	RepoRoot        string   `json:"repo_root"`
+	WorktreeRoot    string   `json:"worktree_root"`
+	AppWorktreeRoot string   `json:"app_worktree_root"`
+	StateRoot       string   `json:"state_root"`
+	T3Bin           string   `json:"t3_bin"`
+	CodexBin        string   `json:"codex_bin"`
+	SetupBin        string   `json:"setup_bin,omitempty"`
+	SetupArgs       []string `json:"setup_args,omitempty"`
+	SetupPaths      []string `json:"setup_paths,omitempty"`
+	WorkspaceBin    string   `json:"workspace_bin,omitempty"`
+	WorkspaceArgs   []string `json:"workspace_args,omitempty"`
+	WorkspacePaths  []string `json:"workspace_paths,omitempty"`
+	BrowserBin      string   `json:"browser_bin,omitempty"`
+	T3Port          int      `json:"t3_port"`
+	T3PortStart     int      `json:"t3_port_start,omitempty"`
+	T3PortEnd       int      `json:"t3_port_end,omitempty"`
+}
+
+type managedAppTask struct {
+	ThreadID    string `json:"thread_id"`
+	Worktree    string `json:"worktree"`
+	Branch      string `json:"branch"`
+	ProjectID   string `json:"project_id"`
+	ProjectName string `json:"project_name"`
 }
 
 type windowsHost struct {
 	config Config
 }
 
-const windowsWorkerProtocol = "1"
+const windowsWorkerProtocol = "2"
 
 func (p windowsWorkerPolicy) localConfig() Config {
 	c := defaultConfig()
@@ -143,6 +152,16 @@ func (w *windowsHost) Prepare(t Task, base, branch string) error {
 	return w.call(nil, windowsWorkerRequest{Operation: "prepare", Task: t, Base: base, Branch: branch}, 15*time.Minute)
 }
 
+func (w *windowsHost) PrepareManagedApp(t Task, base, branch string, recover bool) (managedAppTask, error) {
+	result := managedAppTask{}
+	operation := "prepare-managed-app"
+	if recover {
+		operation = "recover-managed-app"
+	}
+	err := w.call(&result, windowsWorkerRequest{Operation: operation, Task: t, Base: base, Branch: branch}, 20*time.Minute)
+	return result, err
+}
+
 func (w *windowsHost) Archive(t Task, archived bool) (any, error) {
 	operation := "archive"
 	if !archived {
@@ -207,7 +226,7 @@ func (w *windowsHost) Health() (map[string]string, error) {
 		if rangeErr != nil {
 			return nil, rangeErr
 		}
-		expected := map[string]string{"repo_root": normalizeWindowsPath(w.config.WindowsRepoRoot), "worktree_root": normalizeWindowsPath(w.config.WindowsWorktreeRoot), "state_root": normalizeWindowsPath(w.config.WindowsStateRoot), "version": Version, "protocol": windowsWorkerProtocol, "status": "ready"}
+		expected := map[string]string{"repo_root": normalizeWindowsPath(w.config.WindowsRepoRoot), "worktree_root": normalizeWindowsPath(w.config.WindowsWorktreeRoot), "app_worktree_root": normalizeWindowsPath(w.config.windowsAppWorktreeRoot()), "state_root": normalizeWindowsPath(w.config.WindowsStateRoot), "version": Version, "protocol": windowsWorkerProtocol, "status": "ready"}
 		if result["t3_port_start"] == "" && result["t3_port_end"] == "" && start == end {
 			expected["t3_port"] = fmt.Sprint(start)
 		} else {
@@ -364,7 +383,7 @@ func runWindowsWorker(input io.Reader, args []string) (any, error) {
 }
 
 func (p windowsWorkerPolicy) Validate() error {
-	for name, value := range map[string]string{"repo_root": p.RepoRoot, "worktree_root": p.WorktreeRoot, "state_root": p.StateRoot, "t3_bin": p.T3Bin, "codex_bin": p.CodexBin} {
+	for name, value := range map[string]string{"repo_root": p.RepoRoot, "worktree_root": p.WorktreeRoot, "app_worktree_root": p.AppWorktreeRoot, "state_root": p.StateRoot, "t3_bin": p.T3Bin, "codex_bin": p.CodexBin} {
 		if !windowsAbsolutePath(value) {
 			return fmt.Errorf("Windows worker %s must be an absolute Windows path", name)
 		}
@@ -423,6 +442,58 @@ func (p windowsWorkerPolicy) portRange() (int, int, error) {
 	return p.T3PortStart, p.T3PortEnd, nil
 }
 
+func prepareManagedCodexAppTask(policy windowsWorkerPolicy, local *localHost, task Task, _ string, branch string) (managedAppTask, error) {
+	if strings.TrimSpace(task.AppThread) == "" || strings.TrimSpace(task.Worktree) == "" {
+		return managedAppTask{}, errors.New("managed Codex App task is missing its native thread or worktree")
+	}
+	if !windowsWithin(policy.AppWorktreeRoot, task.Worktree) {
+		return managedAppTask{}, errors.New("managed Codex App task escaped the configured App worktree root")
+	}
+	repository, err := windowsGitRepositoryIdentity(policy.RepoRoot)
+	if err != nil || !strings.EqualFold(repository, task.Repo) {
+		return managedAppTask{}, errors.New("configured Codex Project repository does not match the requested task repository")
+	}
+	worktreeRepository, err := windowsGitRepositoryIdentity(task.Worktree)
+	if err != nil || !strings.EqualFold(worktreeRepository, task.Repo) {
+		return managedAppTask{}, errors.New("managed Codex App worktree repository does not match the requested task repository")
+	}
+	if _, err = local.Adopt(task, task.AppThread); err != nil {
+		return managedAppTask{}, err
+	}
+	currentBranch, err := local.Branch(task)
+	if err != nil {
+		return managedAppTask{}, errors.New("cannot inspect Codex App-managed task branch")
+	}
+	if currentBranch == "" {
+		if err = runLocalCommandWithTimeout(localGitCommandTimeout, nil, "git", "-C", task.Worktree, "switch", "-c", branch); err != nil {
+			return managedAppTask{}, errors.New("cannot create the managed task branch")
+		}
+		currentBranch = branch
+	}
+	if currentBranch != branch {
+		return managedAppTask{}, errors.New("Codex App-managed task already uses another branch")
+	}
+	if err = local.setup(task); err != nil {
+		return managedAppTask{}, err
+	}
+	return managedAppTask{ThreadID: task.AppThread, Worktree: normalizeWindowsPath(task.Worktree), Branch: currentBranch}, nil
+}
+
+func windowsGitRepositoryIdentity(root string) (string, error) {
+	out, err := exec.Command("git", "-C", filepath.FromSlash(root), "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSuffix(strings.TrimSpace(string(out)), ".git")
+	lower := strings.ToLower(value)
+	for _, prefix := range []string{"https://github.com/", "http://github.com/", "ssh://git@github.com/", "git@github.com:"} {
+		if strings.HasPrefix(lower, prefix) {
+			return value[len(prefix):], nil
+		}
+	}
+	return "", errors.New("repository origin is not GitHub")
+}
+
 func dispatchWindowsWorker(input io.Reader, policy windowsWorkerPolicy) (any, error) {
 	decoder := json.NewDecoder(io.LimitReader(input, 1<<20))
 	decoder.DisallowUnknownFields()
@@ -439,7 +510,8 @@ func dispatchWindowsWorker(input io.Reader, policy windowsWorkerPolicy) (any, er
 	}
 	if request.Operation != "health" {
 		start, end, _ := policy.portRange()
-		if !strings.EqualFold(normalizeWindowsPath(request.Task.SourceRoot), normalizeWindowsPath(policy.RepoRoot)) || !windowsWithin(policy.WorktreeRoot, request.Task.Worktree) || !windowsWithin(policy.StateRoot, request.Task.T3Home) || request.Task.T3Port < start || request.Task.T3Port > end {
+		allowedWorktree := windowsWithin(policy.WorktreeRoot, request.Task.Worktree) || windowsWithin(policy.AppWorktreeRoot, request.Task.Worktree)
+		if !strings.EqualFold(normalizeWindowsPath(request.Task.SourceRoot), normalizeWindowsPath(policy.RepoRoot)) || !allowedWorktree || !windowsWithin(policy.StateRoot, request.Task.T3Home) || request.Task.T3Port < start || request.Task.T3Port > end {
 			return nil, errors.New("Windows worker request escaped its policy")
 		}
 	}
@@ -456,9 +528,13 @@ func dispatchWindowsWorker(input io.Reader, policy windowsWorkerPolicy) (any, er
 		if policy.WorkspaceBin != "" {
 			workspace = "configured"
 		}
-		return map[string]string{"status": "ready", "version": Version, "protocol": windowsWorkerProtocol, "repo_root": normalizeWindowsPath(policy.RepoRoot), "worktree_root": normalizeWindowsPath(policy.WorktreeRoot), "state_root": normalizeWindowsPath(policy.StateRoot), "t3_port": fmt.Sprint(start), "t3_port_start": fmt.Sprint(start), "t3_port_end": fmt.Sprint(end), "worktree_setup": setup, "workspace_actions": workspace}, nil
+		return map[string]string{"status": "ready", "version": Version, "protocol": windowsWorkerProtocol, "repo_root": normalizeWindowsPath(policy.RepoRoot), "worktree_root": normalizeWindowsPath(policy.WorktreeRoot), "app_worktree_root": normalizeWindowsPath(policy.AppWorktreeRoot), "state_root": normalizeWindowsPath(policy.StateRoot), "t3_port": fmt.Sprint(start), "t3_port_start": fmt.Sprint(start), "t3_port_end": fmt.Sprint(end), "worktree_setup": setup, "workspace_actions": workspace}, nil
 	case "prepare":
 		return nil, local.Prepare(request.Task, request.Base, request.Branch)
+	case "prepare-managed-app":
+		return prepareManagedCodexAppTask(policy, local, request.Task, request.Base, request.Branch)
+	case "recover-managed-app":
+		return prepareManagedCodexAppTask(policy, local, request.Task, request.Base, request.Branch)
 	case "archive":
 		return local.Archive(request.Task, true)
 	case "unarchive":

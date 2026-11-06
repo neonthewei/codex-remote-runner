@@ -24,6 +24,7 @@ type fakeLocalControl struct {
 	thread        map[string]any
 	pairing       string
 	managed       string
+	managedRoot   string
 	projectID     string
 	runCalls      int
 }
@@ -90,6 +91,19 @@ func (f *fakeLocalControl) AppRun(task Task, _ string, _ bool) (StartResult, err
 func (f *fakeLocalControl) Prepare(Task, string, string) error {
 	f.prepared = true
 	return f.prepareErr
+}
+
+func (f *fakeLocalControl) PrepareManagedApp(task Task, _ string, branch string, _ bool) (managedAppTask, error) {
+	f.prepared = true
+	worktree := task.Worktree
+	if f.managedRoot != "" {
+		worktree = f.managedRoot
+	}
+	threadID := task.AppThread
+	if threadID == "" {
+		threadID = "managed-app-thread"
+	}
+	return managedAppTask{ThreadID: threadID, Worktree: worktree, Branch: branch, ProjectID: "saved-project", ProjectName: "SignalsurfWeb"}, f.prepareErr
 }
 
 func (f *fakeLocalControl) Run(Task, string, string) (StartResult, error) {
